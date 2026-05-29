@@ -1,86 +1,189 @@
-# Robotics Challenge — Group 6
+# Robotics Challenge — Group 6 (COMP0204, 2025)
 
-Arduino firmware for the Term 3 Robotics Challenge. The robot is a four-wheel skid-steer platform built on an Arduino Giga R1 WiFi, capable of line-following, gyro-guided turning, RFID waypoint detection, seed dispersal, and obstacle avoidance via TF-Luna LiDAR.
+> ** Viva / test-run code: [`button_mode_dr/`](button_mode_dr/)**  
+> This is the sketch for trial run 2. All behaviours demonstrated in the viva are in this folder.
+
+---
+
+## Table of Contents
+1. [Repository Structure](#repository-structure)
+2. [Hardware](#hardware)
+3. [Required Libraries](#required-libraries)
+4. [Setup Steps](#setup-steps)
+5. [Upload & Run](#upload--run)
+6. [Mode Guide](#mode-guide-button-presses)
+7. [Key Constants to Tune](#key-constants-to-tune)
+8. [Software Diagrams & Flowcharts](#software-diagrams--flowcharts)
+
+---
+
+## Repository Structure
+
+```
+Robotics_challenge/
+│
+├── button_mode_dr/            ← viva/trial run 2 code
+│   ├── button_mode_dr.ino     # Globals, setup(), loop(), State enum, LEDs
+│   ├── motion.ino             # Dead reckoning: gyro turns, encoder drive, bias cal
+│   ├── line_following.ino     # QTR line follow, QTR turns, arena navigation
+│   ├── wall_following.ino     # Tunnel PD wall-follow, tilt detection, chain mode
+│   ├── obstacle_avoidance.ino # 3-point box swerve around obstacles
+│   ├── comms.ino              # MiniMessenger WiFi/MQTT, heartbeat, airlock API
+│   ├── helpers.ino            # Ultrasonic, Motoron init, seed drop, buttons
+│   └── revival.ino            # Mode 4: approach & contact revival behaviour
+│
+├── electronics/               # Sensor integration test sketch (development)
+├── gyro_turning/              # Standalone gyro turn calibration sketch
+├── mechanical/                # Seed dispenser + bumper test sketch
+├── mission/                   # Early mission prototype (line + RFID + seed)
+│
+└── docs/
+    ├── software-overview.md   # Component diagram and data-flow description
+    ├── flowcharts.md          # Detailed flowcharts for all key behaviours
+    └── calibration.md         # Testing logs, what worked, what did not
+```
+
+> Arduino concatenates all `.ino` files in a folder before compiling, so all globals
+> declared in `button_mode_dr.ino` are visible across every tab automatically.
+
+---
 
 ## Hardware
 
 | Component | Details |
 |-----------|---------|
 | MCU | Arduino Giga R1 WiFi |
-| Motor drivers | 2× Pololu Motoron M3S550 (I2C on Wire1) |
-| Drive motors | 4× SparkFun DG01D-E (metal gearbox + Hall encoder) |
-| Line sensor | Pololu QTRX-HD-09RC (9-channel RC, pins 24–40 even) |
-| LiDAR | Benewake TF-Luna (I2C on Wire1, 0x10) |
-| RFID | M5Stack RFID2 WS1850S (I2C on Wire2, auto-scanned) |
-| IMU | MPU-6050 (I2C on Wire, ±500 °/s, 21 Hz LPF) |
-| Battery | Ansmann 10.9 V 3500 mAh 3S1P Li-ion |
+| Motor drivers | 2× Pololu Motoron M3S256 (I²C on Wire1, addr 17 & 18) |
+| Drive motors | 4× DC motors with Hall-effect encoders |
+| Line sensor | Pololu QTRX-HD-09RC (9-channel RC, pins 23–31) |
+| Ultrasonic | 3× HC-SR04 — Front 37/36, Left 41/40, Right 39/38 |
+| RFID | M5Stack WS1850S (I²C on Wire2, address auto-scanned) |
+| IMU | MPU-6050 (I²C on Wire, ±500 °/s gyro, 21 Hz LPF) |
+| Buttons | Button 1 = pin 49, Button 2 = pin 47, Kill switch = pin 45 |
+| LEDs | Red = pin TBD, Green = pin TBD (fill in `button_mode_dr.ino`) |
 
-## Repository Structure
+### Motoron Channel Map
 
+| Controller | I²C addr | Channel | Function |
+|------------|----------|---------|----------|
+| mc1 | 18 | ch2 | Left drive |
+| mc1 | 18 | ch3 | Right drive |
+| mc2 | 17 | ch2 | Left drive |
+| mc2 | 17 | ch3 | Right drive |
+| mc2 | 17 | ch1 | Seed dispenser |
+
+### Encoder Pins
+
+| Encoder | Pin A (interrupt) | Pin B (direction) |
+|---------|-------------------|-------------------|
+| Encoder 1 | 52 | 50 |
+| Encoder 2 | 53 | 51 |
+
+---
+
+## Required Libraries
+
+Install all via **Arduino IDE → Tools → Manage Libraries**, or via `.zip`:
+
+| Library | Source |
+|---------|--------|
+| `Motoron` | Library Manager → "Motoron" by Pololu |
+| `Adafruit MPU6050` | Library Manager → "Adafruit MPU6050" |
+| `Adafruit Unified Sensor` | Library Manager (dependency of above) |
+| `QTRSensors` | Library Manager → "QTRSensors" by Pololu |
+| `MFRC522_I2C` | Library Manager → "MFRC522_I2C" |
+| `MiniMessenger` | Library Manager → "MiniMessenger" |
+
+---
+
+## Setup Steps
+
+### 1. Hardware connections
+Wire all sensors and motors per the pin table above and connect the Arduino Giga R1 WiFi via USB.
+
+### 2. Set LED pins
+In `button_mode_dr.ino`, fill in once the wires are known:
+```cpp
+const int redPin   = -1;   // replace with actual pin
+const int greenPin = -1;   // replace with actual pin
 ```
-Robotics_challenge/
-├── electronics/
-│   └── electronics.ino   # Full sensor integration test
-├── mechanical/
-│   └── mechanical.ino    # Seed dispenser + revival button test
-├── gyro_turning/
-│   └── gyro_turning.ino  # Gyro-guided 90° and 180° turn calibration
-└── mission/
-    └── mission.ino       # Full mission: line-follow, RFID, seed drop, turns
+
+### 4. Set Airlock A RFID tag UID
+In `wall_following.ino`, scan the tag once, read the UID from Serial, then paste it:
+```cpp
+const String AIRLOCK_A_TAG_ID = "XXXXXXXX";
 ```
 
-## Sketches
+### 5. QTR sensor calibration
+The robot automatically calibrates the line sensor for ~4 seconds on startup.
+During this window, **slowly move the sensor array back and forth across the line**
+so all 9 sensors see both black tape and white floor. The Serial monitor will print
+`"Calibration done!"` when finished.
 
-### `electronics/`
-Exercises every sensor and actuator in a single loop. On startup it:
-1. Scans Wire2 for the RFID module (dynamic address discovery).
-2. Scans Wire1 for the two Motoron shields (dynamic address discovery).
-3. Initialises the TF-Luna LiDAR on Wire1.
-4. Initialises the MPU-6050 on Wire.
-5. Runs a 2-second QTR calibration sweep.
+### 6. Gyro bias calibration
+Keep the robot **completely still** for ~1.5 seconds after power-on while the gyro
+samples 500 readings. The Serial monitor prints `[GYRO] Bias: <value>` when done.
+If the robot is moving, calibration is skipped and retried at the next turn.
 
-Once started with the button (pin 45), it drives forward, executes right/left 90° turns and a U-turn, polling all sensors continuously. The LED blinks red when stopped and is solid red when running.
+---
 
-### `mechanical/`
-Standalone test for the revolver seed dispenser. Press the button (pin 45) to trigger a 6-pulse dispense cycle (710 ms on / 2000 ms off per pulse). The interface button (pin 49) lights the LED green while held, confirming the revival contact circuit.
+## Upload & Run
 
-### `gyro_turning/`
-Calibration sketch used to determine gyro integration thresholds. Executes a 90° turn (threshold `|z| ≥ 0.9 rad`) followed by a 180° U-turn (threshold `|z| ≥ 1.5 rad`), printing the accumulated yaw to Serial at 115200 baud. Used to validate the thresholds carried into the mission code.
+1. Open `button_mode_dr/button_mode_dr.ino` in **Arduino IDE 2.x** — all 8 tabs load automatically.
+2. Select **Board: Arduino Giga R1 WiFi** and the correct COM port.
+3. Click **Upload**.
+4. Open **Serial Monitor at 115200 baud** to watch startup progress and mode output.
+5. Wait for `=== Ready ===` in Serial.
+6. Press **Button 1 (pin 49)** to start the robot. The green LED comes on.
+7. Press **Button 1** again while running to advance to the next mode.
+8. Press **Kill switch (pin 49)** at any time to stop all motors immediately.
 
-### `mission/`
-Full mission loop. On each iteration:
-- If an RFID tag is detected, drops a seed and turns right 90°, then line-follows for 200 cycles to clear the waypoint before scanning again.
-- Otherwise, runs proportional error line-following using weighted sensor readings across the 9-channel QTRX array.
+---
 
-## Pin Assignments
+## Mode Guide (Button Presses)
 
-| Pin | Function |
-|-----|----------|
-| 24, 26, 28, 30, 32, 34, 36, 38, 40 | QTRX-HD-09RC channels 1–9 |
-| 45 | Start/stop button (INPUT_PULLUP) |
-| 47 | Revival button A (INPUT_PULLUP) |
-| 49 | Revival button B / interface button (INPUT_PULLUP) |
-| 51 | RGB LED green channel |
-| 53 | RGB LED red channel |
-| Wire SDA/SCL | MPU-6050 |
-| Wire1 SDA/SCL | Motoron MC1 (0x12), Motoron MC2 (0x11), TF-Luna (0x10) |
-| Wire2 SDA/SCL | M5Stack RFID2 (auto-scanned, typically 0x28) |
+| Presses | Mode | Description |
+|---------|------|-------------|
+| 0 | **Line Follow** | Proportional QTR line following; RFID updates grid position |
+| 1 | **Chain Mode** | Tunnel wall-follow → Airlock A request → Arena line follow |
+| 2 | **Line Follow 2** | Same as mode 0 (second pass / return) |
+| 3 | **Dead Reckoning** | Gyro-guided 90° turns + encoder odometry along path array |
+| 4 | **Revival** | Full-speed approach to 40 cm, then crawl to bumper contact |
+| 5 | **Obstacle Avoidance** | Forward drive with automated 3-point box swerve |
 
-## Dependencies
+> **Kill switch (pin 45)** — stops all motors instantly, regardless of mode.  
+> **Button 1 or 2** — restarts robot after kill-switch stop (revival / start).
 
-Install all libraries via the Arduino Library Manager:
+---
 
-- [Motoron](https://github.com/pololu/motoron-arduino) — Pololu Motoron motor controller
-- [TFLI2C](https://github.com/budryerson/TFLi2C) — TF-Luna LiDAR
-- [MFRC522_I2C](https://github.com/arozcan/MFRC522-I2C-Library) — RFID reader
-- [QTRSensors](https://github.com/pololu/qtr-sensors-arduino) — Pololu QTR line sensors
-- [Adafruit MPU6050](https://github.com/adafruit/Adafruit_MPU6050) — IMU
-- [Adafruit Unified Sensor](https://github.com/adafruit/Adafruit_Sensor) — sensor abstraction layer
+## Key Constants to Tune
 
-## Usage
+| Constant | File | Value | Notes |
+|----------|------|-------|-------|
+| `TURN_SCALE` | `button_mode_dr.ino` | `0.90` | Gyro brake point. ↑ if undershooting, ↓ if overshooting. Step by 0.03 |
+| `DRIVE_SPEED` | `button_mode_dr.ino` | `600` | Forward speed for dead reckoning |
+| `DRIVE_KP` | `button_mode_dr.ino` | `80.0` | Heading correction P-gain during straight drive |
+| `TRACK_WIDTH_CM` | `button_mode_dr.ino` | `17.0` | Measure axle-to-axle and update |
+| `COUNTS_PER_REV` | `button_mode_dr.ino` | `144` | Encoder ticks per wheel revolution |
+| `MIN_SPEED` | `button_mode_dr.ino` | `400` | Stall floor — never command motors below this |
+| `WK_P` | `wall_following.ino` | `80.0` | Tunnel wall-follow P gain (uphill/flat) |
+| `WK_P_DOWN` | `wall_following.ino` | `20.0` | Tunnel P gain (downhill — gentler) |
+| `W_BASE` | `wall_following.ino` | `700` | Tunnel base speed |
+| `OBS_DRIVE_SPEED` | `obstacle_avoidance.ino` | `500` | Obstacle mode forward speed |
+| `HEARTBEAT_TIMEOUT_MS` | `comms.ino` | `3000` | ms without heartbeat before motors stop |
 
-1. Open the desired sketch folder in the Arduino IDE.
-2. Select **Arduino Giga R1 WiFi** as the board.
-3. Upload and open Serial Monitor at **115200 baud**.
-4. For `electronics` and `mission`: slowly sweep the QTRX array over the line during the 2-second calibration window.
-5. Press the button on pin 45 to start.
+---
+
+## Software Diagrams & Flowcharts
+
+- [`docs/software-overview.md`](docs/software-overview.md) — Component interaction diagram and data flow
+- [`docs/flowcharts.md`](docs/flowcharts.md) — Flowcharts for every key behaviour:
+  - Startup & sensor calibration
+  - Main loop and mode switching (kill switch, enable, robotRunning)
+  - Line following with RFID position tracking
+  - Chain mode state machine (NAVIGATING → WAITING_AIRLOCK → LINE_FOLLOWING)
+  - Dead reckoning with gyro turns and encoder odometry
+  - Obstacle avoidance 3-point swerve
+  - Revival approach and bumper contact
+  - MQTT comms, heartbeat watchdog, and airlock API
+- [`docs/calibration.md`](docs/calibration.md) — Testing logs, calibration runs, what worked and what did not
