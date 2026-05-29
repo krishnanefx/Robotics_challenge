@@ -1,7 +1,7 @@
 # Robotics Challenge — Group 6 (COMP0204, 2025)
 
-> ** Viva / test-run code: [`button_mode_dr/`](button_mode_dr/)**  
-> This is the sketch for trial run 2. All behaviours demonstrated in the viva are in this folder.
+Viva / test-run code: [`button_mode_dr/`](button_mode_dr/)
+This is the sketch for trial run 2. All behaviours demonstrated in the viva are in this folder.
 
 ---
 
