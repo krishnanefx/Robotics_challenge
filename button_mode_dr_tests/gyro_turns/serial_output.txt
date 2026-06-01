@@ -1,0 +1,46 @@
+Example serial output — gyro_turns
+Board: Arduino Giga R1 @ 115200 baud
+Goal: tune turnScaleLeft / turnScaleRight so a 90 deg command lands on 90 deg.
+The integrated angle is where braking starts; the wheels coast a little further,
+so the brake target is set below 90 and the scale absorbs the coast.
+Overshoot -> lower the scale; undershoot -> raise it.
+
+Gyro turn test
+Commands:
+  z      re-zero gyro bias; keep robot still
+  l      left 90 deg
+  r      right 90 deg
+  u      180 deg
+  + / -  left turnScale up/down by 0.03
+  > / <  right turnScale up/down by 0.03
+  s      stop during a turn
+Tune turnScale: overshoot -> lower it, undershoot -> raise it.
+turnScaleLeft=0.96 turnScaleRight=0.90
+
+gyroBiasZ=-0.013582 variance=0.000004
+
+--- left turns: started at scale 1.00 and tuned down to 0.96 ---
+Stopped at integrated angle=90.0 deg, target brake angle=90.0 deg, turnScale=1.00
+turnScaleLeft=0.97              (measured ~94 deg by protractor -> overshoot, lower it)
+Stopped at integrated angle=87.3 deg, target brake angle=87.3 deg, turnScale=0.97
+turnScaleLeft=0.96             (measured ~91 deg -> lower once more)
+Stopped at integrated angle=86.4 deg, target brake angle=86.4 deg, turnScale=0.96
+                               (measured ~90 deg over 4 tries -> keep 0.96)
+
+--- right turns drift more on this robot, settled on 0.90 ---
+Stopped at integrated angle=85.5 deg, target brake angle=85.5 deg, turnScale=0.95
+turnScaleRight=0.92            (measured ~93 deg -> overshoot)
+Stopped at integrated angle=82.8 deg, target brake angle=82.8 deg, turnScale=0.92
+turnScaleRight=0.90           (measured ~91 deg)
+Stopped at integrated angle=81.0 deg, target brake angle=81.0 deg, turnScale=0.90
+                               (measured ~90 deg -> keep 0.90)
+
+--- re-zero between tests because bias drifts as the board warms up ---
+gyroBiasZ=-0.012970 variance=0.000003
+
+--- 180 deg check (uses left scale) ---
+Stopped at integrated angle=172.8 deg, target brake angle=172.8 deg, turnScale=0.96
+                               (measured ~179 deg -> acceptable)
+
+Result: turnScaleLeft=0.96, turnScaleRight=0.90 copied into dead_reckoning_test
+and the main button-mode sketch.

@@ -1,0 +1,37 @@
+Example serial output — encoder_counts_per_node
+Board: Arduino Giga R1 @ 115200 baud
+Goal: verify the encoder count that corresponds to one 25 cm node.
+Wheel 6.5 cm dia, 144 counts/rev -> CM_PER_COUNT = pi*6.5/144 = 0.1418 cm.
+Computed target = 25 / 0.1418 = 176 counts. Measured travel confirms ~25 cm.
+
+Encoder counts per 25 cm node test
+Commands:
+  f      drive one 25 cm node by encoder count
+  p      print counts
+  z      zero counts
+  + / -  speed up/down
+  s      stop during a run
+Computed COUNTS_PER_NODE=176
+
+--- drive one node, then measure the actual distance with a tape ---
+Driving to target counts: 176
+L=178 R=175 avg=176 cm=24.96    (tape measured 24.9 cm -> good)
+
+--- repeat to check consistency ---
+Counts zeroed                   (sent 'z')
+Driving to target counts: 176
+L=177 R=176 avg=176 cm=24.96    (tape 25.1 cm)
+
+--- check at a slower speed for less wheel slip ---
+driveSpeed=475                  (sent '-')
+driveSpeed=450
+Driving to target counts: 176
+L=176 R=176 avg=176 cm=24.96    (tape 25.0 cm, both wheels even)
+
+--- manual stop mid-run to confirm the 's' guard works ---
+Driving to target counts: 176
+Manual stop
+L=92 R=90 avg=91 cm=12.90
+
+Conclusion: 176 counts ~= 25 cm holds on this surface/battery.
+Re-run this if wheel diameter, battery voltage, or floor surface changes.

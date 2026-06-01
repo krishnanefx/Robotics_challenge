@@ -1,0 +1,54 @@
+Example serial output — line_tracking_tune
+Board: Arduino Giga R1 @ 115200 baud
+Goal: tune baseSpeed and turnGain for the raw 9-sensor line follower.
+Calibration runs automatically at boot by sweeping left/right over the line.
+
+Auto calibration starting. Robot will sweep left/right.
+Auto calibration done.
+
+Line tracking tune
+Commands:
+  g      go / start line following
+  s      stop
+  + / -  base speed up/down
+  ] / [  turn gain up/down
+  p      toggle sensor/motor printing
+  x      flip correction direction if steering is backwards
+  k      auto-calibrate by sweeping left/right
+  y / h  raw threshold up/down (used before calibration)
+  l      test left intersection turn
+  r      test right intersection turn
+  c      print status
+  ?      print this help
+
+If it does not turn enough: increase turnGain with ].
+If it turns too slowly: increase baseSpeed with + and/or turnGain with ].
+If it drives away from the line: press x.
+
+baseSpeed=245 turnGain=1.30 minSpeed=-250 maxSpeed=700 rawThreshold=200 calibrated=true flipCorrection=false running=false
+
+--- enable telemetry, then start following ---
+printSensors=true               (sent 'p')
+Running                         (sent 'g')
+err=0.0 corr=0 L=245 R=245 sensors=0,0,40,1000,1000,1000,30,0,0
+err=12.5 corr=16 L=229 R=261 sensors=0,0,120,900,1000,1000,260,0,0
+err=-31.0 corr=-40 L=285 R=205 sensors=0,180,1000,1000,520,0,0,0,0
+err=8.0 corr=10 L=235 R=255 sensors=0,0,0,640,1000,1000,300,0,0
+
+--- robot wandered off the line on a sharp bend: not turning hard enough ---
+baseSpeed=245 turnGain=1.40 minSpeed=-250 maxSpeed=700 rawThreshold=200 calibrated=true flipCorrection=false running=true   (sent ']')
+baseSpeed=245 turnGain=1.50 minSpeed=-250 maxSpeed=700 rawThreshold=200 calibrated=true flipCorrection=false running=true
+err=-58.0 corr=-87 L=332 R=158 sensors=900,1000,460,0,0,0,0,0,0   (now corrects hard enough to hold the bend)
+
+--- a touch more straight-line speed ---
+baseSpeed=270 turnGain=1.50 minSpeed=-250 maxSpeed=700 rawThreshold=200 calibrated=true flipCorrection=false running=true   (sent '+')
+Stopped                         (sent 's')
+
+--- intersection turn tests ---
+Turn left: losing line, then finding next line
+Left turn done
+Turn right: losing line, then finding next line
+Right turn done
+
+Result for this track: baseSpeed=270, turnGain=1.50. If steering were reversed,
+pressing 'x' would set flipCorrection=true.

@@ -1,0 +1,74 @@
+Example serial output — dead_reckoning_test
+Board: Arduino Giga R1 @ 115200 baud
+Goal: drive the 25 cm node grid using encoders for distance and gyro yaw for the
+90 deg turns. This sketch is where the tuned DR values come from.
+COUNTS_PER_NODE = 176 (25 cm), DRIVE_SPEED = 300, turn scales L=0.96 R=0.90.
+
+[RFID] Scanning Wire2 I2C bus...
+[RFID] Found I2C device at 0x28
+[RFID] Reader initialized at 0x28
+Keep robot still. Calibrating gyro...
+[GYRO] Bias Z=-0.013441
+
+Dead reckoning standalone test
+Commands:
+  f      drive one 25 cm node
+  l      gyro turn left 90 deg
+  r      gyro turn right 90 deg
+  p      run full path
+  x      reset path state
+  z      re-zero gyro bias
+  c      print encoder counts/status
+  i      toggle RFID early stop
+  s      stop immediately
+  ?      print help
+
+COUNTS_PER_NODE=176
+DRIVE_SPEED=300 MIN_FORWARD_SPEED=200 MIN_TURN_SPEED=400
+TURN_SCALE_LEFT=0.96 TURN_SCALE_RIGHT=0.90
+RFID early stop=ON reader=ready
+[DR_TEST] Path reset. Facing N, next index=1.
+
+--- single node drive to confirm distance and that heading holds near 0 ---
+[DR_TEST] Driving one node, target counts=176
+L=178 R=175 avg=176 cm=24.96 headingDeg=0.41 facing=N
+[GYRO] Bias Z=-0.013209
+
+--- single turns to confirm direction bookkeeping ---
+[TURN] Facing E
+[GYRO] Bias Z=-0.013112
+[TURN] Facing N
+[GYRO] Bias Z=-0.013390
+
+--- full path run (p) ---
+[DR_TEST] Node index 1 targetDir=N
+[DR_TEST] Driving one node, target counts=176
+L=177 R=176 avg=176 cm=24.96 headingDeg=0.33 facing=N
+[GYRO] Bias Z=-0.013088
+[DR_TEST] Node index 2 targetDir=N
+[DR_TEST] Driving one node, target counts=176
+L=179 R=176 avg=177 cm=25.10 headingDeg=-0.52 facing=N
+[GYRO] Bias Z=-0.012977
+[DR_TEST] Node index 3 targetDir=E
+[TURN] Facing E
+[GYRO] Bias Z=-0.013150
+[DR_TEST] Driving one node, target counts=176
+L=176 R=177 avg=176 cm=24.96 headingDeg=0.61 facing=E
+[GYRO] Bias Z=-0.013044
+[DR_TEST] Node index 4 targetDir=N
+[TURN] Facing N
+[GYRO] Bias Z=-0.013233
+[DR_TEST] Driving one node, target counts=176
+L=178 R=175 avg=176 cm=24.96 headingDeg=0.28 facing=N
+[GYRO] Bias Z=-0.013096
+[DR_TEST] Node index 5 targetDir=N
+[DR_TEST] Driving one node, target counts=176
+[RFID] Early node stop tag=A4B12C9D avgCounts=149
+[GYRO] Bias Z=-0.013015
+[DR_TEST] Path complete
+
+--- demo of toggling the RFID early stop off for pure odometry runs ---
+[DR_TEST] RFID early stop=OFF
+
+Result: DR values verified. Heading stays within ~1 deg per node; the RFID early
+stop correctly cut node 5 short when the floor tag was seen at 149/176 counts.

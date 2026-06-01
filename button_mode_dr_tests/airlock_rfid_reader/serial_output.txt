@@ -1,0 +1,26 @@
+Example serial output — airlock_rfid_reader
+Board: Arduino Giga R1 @ 115200 baud
+Goal: confirm the MFRC522 reader is alive on Wire2 and read the airlock tag UID.
+This is the first thing we run when the airlock door will not open.
+Expected airlock A tag: C2834BF4.
+
+Scanning Wire2 I2C bus...
+Found I2C device at 0x28
+Hold the airlock RFID tag near the reader.
+
+--- tapped the airlock A tag a few times to confirm a stable read ---
+AIRLOCK_A_TAG_ID = "C2834BF4"
+AIRLOCK_A_TAG_ID = "C2834BF4"
+AIRLOCK_A_TAG_ID = "C2834BF4"
+
+--- tapped a different (wrong) tag to confirm the reader distinguishes UIDs ---
+AIRLOCK_A_TAG_ID = "A4B12C9D"
+
+--- back to the correct airlock tag ---
+AIRLOCK_A_TAG_ID = "C2834BF4"
+
+Result: reader present at 0x28, airlock A UID = C2834BF4. This string is what
+gate_rfid_ramp_test and chain_mode_tune send to the server as the openAirlock tag.
+
+(If instead this had printed "ERROR: No I2C devices found on Wire2." the reader
+wiring/power on Wire2 would be the fault, and the door logic could not work.)
