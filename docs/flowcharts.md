@@ -62,11 +62,10 @@ GAME_CHAIN_ENTRY
 
 ```text
 GAME_INITIAL_PATTERN
-  move one node north
-  move one node east
-  move one node north
-  move one node north
-  turn left / align for vertical sweep
+turn right
+go down
+turn left
+go forward
   -> GAME_SERPENTINE
 
 GAME_SERPENTINE
