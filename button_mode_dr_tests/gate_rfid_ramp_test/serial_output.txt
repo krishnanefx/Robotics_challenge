@@ -1,0 +1,61 @@
+Example serial output — gate_rfid_ramp_test
+Board: Arduino Giga R1 @ 115200 baud
+Goal: send the airlock tag to the server, wait for accepted=true AND ultrasonic
+confirmation that the door is physically open, then wall-follow up the ramp.
+Telemetry was toggled on (p) so the door/ramp decisions are visible.
+
+[MPU] Ready.
+[COMMS] Connecting...
+
+Gate RFID + ramp test
+Sends tag C2834BF4 to server, waits for door, drives up ramp.
+Commands:
+  g      send airlock request and go
+  s      stop
+  r      reset
+  p      toggle telemetry
+  + / -  ramp base speed up/down
+  ] / [  wall KpUp up/down
+  } / {  wall Kd up/down
+  u / j  wall dist up/down
+  d / e  door distance up/down
+  o / i  door-open distance up/down
+  c      print status
+  ?      help
+state=WAIT_REPLY running=false requestSent=false rampBase=400 KpUp=25.0 KpDown=10.0 Kd=3.0 wallDist=20 doorCm=8 doorOpenCm=18 tilt=0.3
+
+--- send the request ---
+[DOOR] Sent tag C2834BF4 — request sent.
+[GATE] Waiting for server accept...
+
+--- server reply arrives ---
+[DOOR] Accepted — waiting for ultrasonic door clearance.
+
+--- front ultrasonic must read >= doorOpenCm (18) for 3 consecutive checks ---
+[DOOR] front=9 openCm=18 hits=0
+[DOOR] front=11 openCm=18 hits=0
+[DOOR] front=14 openCm=18 hits=0
+[DOOR] front=21 openCm=18 hits=1
+[DOOR] front=26 openCm=18 hits=2
+[DOOR] front=33 openCm=18 hits=3
+[DOOR] Ultrasonic clear — moving into ramp.
+
+--- ramp wall-following: error = leftWall - rightWall, corrected by KpUp/Kd ---
+[RAMP] Searching. tilt=1.2 L=44 R=51
+[RAMP] tilt=7.8 L=19 R=23 corr=-52 mL=348 mR=452
+[RAMP] tilt=11.4 L=15 R=18 corr=-41 mL=359 mR=441
+[RAMP] tilt=12.1 L=17 R=16 corr=11 mL=411 mR=389
+[RAMP] tilt=10.6 L=18 R=18 corr=0 mL=400 mR=400
+[RAMP] tilt=6.2 L=22 R=24 corr=-18 mL=382 mR=418
+[RAMP] Searching. tilt=2.1 L=40 R=46
+[DONE] Ramp cleared.
+
+--- denied-path example (separate run where the server rejected the tag) ---
+[DOOR] Sent tag C2834BF4 — request sent.
+[GATE] Waiting for server accept...
+[DOOR] Denied — wrong_airlock
+[GATE] Retrying...
+[DOOR] Sent tag C2834BF4 — request sent.
+
+Result: door logic waits for BOTH server accept and a stable >=18 cm ultrasonic
+reading before committing to the ramp, which stopped the robot nosing a closed door.

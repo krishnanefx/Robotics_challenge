@@ -1,0 +1,48 @@
+Example serial output — raw_ir_reader
+Board: Arduino Giga R1 @ 115200 baud
+Captured during line/intersection check before a competition run.
+Note: higher raw_us = sensor took longer to discharge = more likely over the dark line.
+
+Raw IR reader
+Pins/indexes:
+  0 -> pin 23
+  1 -> pin 24
+  2 -> pin 25
+  3 -> pin 26
+  4 -> pin 27
+  5 -> pin 28
+  6 -> pin 29
+  7 -> pin 30
+  8 -> pin 31
+Commands:
+  + / -  threshold up/down
+  b      toggle bar graph
+  ?      help
+
+--- robot sitting centred on the line (centre sensors 3-5 over black) ---
+raw_us=0:180 1:210 2:540 3:2500 4:2500 5:2500 6:430 7:190 8:160 | L=0 C=1 R=0 threshold=250
+bars=0:#......... 1:#......... 2:##........ 3:########## 4:########## 5:########## 6:#......... 7:#......... 8:#.........
+raw_us=0:175 1:205 2:610 3:2500 4:2500 5:2500 6:380 7:185 8:165 | L=0 C=1 R=0 threshold=250
+bars=0:#......... 1:#......... 2:##........ 3:########## 4:########## 5:########## 6:#......... 7:#......... 8:#.........
+
+--- robot drifted left, line now under sensors 5-7 ---
+raw_us=0:170 1:190 2:230 3:260 4:880 5:2500 6:2500 7:2500 8:540 | L=0 C=1 R=1 threshold=250
+bars=0:#......... 1:#......... 2:#......... 3:#......... 4:###....... 5:########## 6:########## 7:########## 8:##........
+
+--- crossing a full intersection (all sensors over black) ---
+raw_us=0:2500 1:2500 2:2500 3:2500 4:2500 5:2500 6:2500 7:2500 8:2500 | L=1 C=1 R=1 threshold=250
+bars=0:########## 1:########## 2:########## 3:########## 4:########## 5:########## 6:########## 7:########## 8:##########
+
+--- right branch only (sensors 6-8 over black, used by chain_mode branch detect) ---
+raw_us=0:165 1:175 2:200 3:240 4:300 5:520 6:2500 7:2500 8:2500 | L=0 C=0 R=1 threshold=250
+bars=0:#......... 1:#......... 2:#......... 3:#......... 4:#......... 5:##........ 6:########## 7:########## 8:##########
+
+--- robot lifted off the line (white floor only) ---
+raw_us=0:160 1:170 2:185 3:195 4:210 5:200 6:190 7:180 8:165 | L=0 C=0 R=0 threshold=250
+bars=0:#......... 1:#......... 2:#......... 3:#......... 4:#......... 5:#......... 6:#......... 7:#......... 8:#.........
+
+--- operator raised threshold to reject a slightly grey floor: sent '+' twice ---
+threshold=300
+threshold=350
+raw_us=0:160 1:170 2:185 3:195 4:2500 5:2500 6:330 7:180 8:165 | L=0 C=1 R=0 threshold=350
+bars=0:#......... 1:#......... 2:#......... 3:#......... 4:########## 5:########## 6:#......... 7:#......... 8:#.........

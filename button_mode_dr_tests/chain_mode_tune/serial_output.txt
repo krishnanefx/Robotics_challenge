@@ -1,0 +1,100 @@
+Example serial output — chain_mode_tune
+Board: Arduino Giga R1 @ 115200 baud
+Goal: tune the full chain run: raw-IR line approach -> read airlock RFID -> request
+the door over MiniMessenger -> enter the ramp only after line loss + server accept
++ ultrasonic door clearance -> wall-follow the tunnel -> arena line follow.
+Telemetry was toggled on (p) for the approach so steering is visible.
+
+[COMMS] MiniMessenger starting
+[RFID] Scanning Wire2 I2C bus...
+[RFID] Found device at 0x28
+[RFID] Reader initialized at 0x28
+[MPU] MPU6050 ready.
+[RAW] Auto calibration starting.
+[RAW] Put the sensor bar over the line area. Robot will sweep left/right.
+[RAW] Auto calibration done.
+[GYRO] Keep robot still. Calibrating yaw bias...
+[GYRO] Bias Z=-0.013498
+[CHAIN] Auto-run enabled.
+
+--- comms come up: registration + server heartbeats ---
+[COMMS] Registered with server
+[COMMS] from=server | type=heartbeat enable=1 ts=10421
+[COMMS] from=server | type=heartbeat enable=1 ts=11422
+
+--- line approach (telemetry on) ---
+printTelemetry=true
+[LINE] state=APPROACH err=0.0 corr=0 L=300 R=300
+[LINE] state=APPROACH err=14.0 corr=14 L=286 R=314
+[LINE] state=APPROACH err=-22.0 corr=-22 L=322 R=278
+
+--- airlock tag read mid-approach; matches C2834BF4 so the request is sent ---
+[RFID] Tag=C2834BF4
+[DOOR] Requested airlock A with tag C2834BF4 — sent
+[CHAIN] Airlock tag matched. Request sent; continuing approach.
+
+--- server grants entry while we keep approaching ---
+[COMMS] from=server | type=openAirlockReply airlock=A accepted=true
+[DOOR] Airlock accepted
+[DOOR] Entry granted — will enter ramp after line tracking ends
+
+--- the fixed right / left / left / right-branch maneuver to the ramp mouth ---
+[CHAIN] Pausing before first right turn.
+[CHAIN] Gyro right, two line-end left turns, then right branch turn.
+[GYRO] Turning right 90
+[GYRO] Keep robot still. Calibrating yaw bias...
+[GYRO] Bias Z=-0.013361
+[GYRO] Turn done.
+[CHAIN] Line tracking until next line end.
+[CHAIN] Next line end detected.
+[GYRO] Turning left 90
+[GYRO] Keep robot still. Calibrating yaw bias...
+[GYRO] Bias Z=-0.013287
+[GYRO] Turn done.
+[CHAIN] Line tracking until next line end.
+[CHAIN] Next line end detected.
+[GYRO] Turning left 90
+[GYRO] Keep robot still. Calibrating yaw bias...
+[GYRO] Bias Z=-0.013190
+[GYRO] Turn done.
+[CHAIN] Line tracking until right branch.
+[CHAIN] Branch candidate — stopping to confirm.
+[CHAIN] Right branch detected.
+[GYRO] Turning right 90
+[GYRO] Keep robot still. Calibrating yaw bias...
+[GYRO] Bias Z=-0.013233
+[GYRO] Turn done.
+[CHAIN] Following line after last turn; will enter ramp on line loss.
+
+--- line lost at the ramp mouth; server already accepted, now wait for the door ---
+[CHAIN] Line lost — waiting for server accept and ultrasonic door clearance.
+[DOOR] front=10 openCm=18 hits=0
+[DOOR] front=13 openCm=18 hits=0
+[DOOR] front=20 openCm=18 hits=1
+[DOOR] front=27 openCm=18 hits=2
+[DOOR] front=31 openCm=18 hits=3
+[DOOR] Accepted and ultrasonic clear — entering ramp mode.
+
+--- tunnel wall-follow: error = Lcm - Rcm, KpUp while climbing ---
+[TUNNEL] tilt=8.1 Lcm=18 Rcm=22 err=-4 corr=-100 base=400 motorL=300 motorR=500
+[TUNNEL] tilt=12.7 Lcm=16 Rcm=17 err=-1 corr=-25 base=400 motorL=375 motorR=425
+[TUNNEL] tilt=13.0 Lcm=17 Rcm=16 err=1 corr=25 base=400 motorL=425 motorR=375
+[TUNNEL] tilt=-24.6 Lcm=19 Rcm=20 err=-1 corr=-10 base=100 motorL=90 motorR=110
+[TUNNEL] tilt=-3.2 Lcm=41 Rcm=46 err=-5 corr=-55 base=400 motorL=345 motorR=455
+[CHAIN] Tunnel cleared. Entering arena line follow.
+
+--- arena line follow resumes (state=ARENA) ---
+[LINE] state=ARENA err=0.0 corr=0 L=300 R=300
+[LINE] state=ARENA err=18.0 corr=18 L=282 R=318
+
+--- operator pressed c for a full status dump ---
+state=ARENA approachTurn=1/4 running=true lineBase=300 lineGain=1.00 branchSpeed=200 rawThreshold=200 calibrated=true gyroRightScale=0.94 flipLine=false
+tunnelBase=400 KpUp=25.0 KpDown=10.0 Kd=3.0 wallDist=20 doorCm=8 doorOpenCm=18 downhillReduction=300
+front=64 left=58 right=61 tilt=0.4
+
+--- a heartbeat dropout would stop the robot: ---
+[COMMS] Heartbeat timeout — stopped
+
+Result: the chain only commits to the ramp after line loss + server accept + a
+stable >=18 cm front reading, and the downhill section drops base speed (note the
+base=100 line) so the robot does not run away on the descent.

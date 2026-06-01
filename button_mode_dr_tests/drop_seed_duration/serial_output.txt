@@ -1,0 +1,44 @@
+Example serial output — drop_seed_duration
+Board: Arduino Giga R1 @ 115200 baud
+Goal: find the shortest seed-motor run that drops exactly one seed.
+Result: speed 600 for 550 ms is the shortest that drops one seed every time.
+
+Drop seed duration test
+Commands:
+  t      test one seed drop
+  + / -  duration up/down by 50 ms
+  u / d  speed up/down by 50
+  b      run backward for same duration, useful for clearing jams
+  s      stop seed motor
+Tune dropSeed() to the shortest duration that drops exactly one seed.
+
+seedSpeed=600 seedDurationMs=700
+
+--- baseline drop ---
+Seed motor speed=600 durationMs=700
+Done               (dropped 1 seed, but mechanism over-rotates slightly)
+
+--- step duration down to find the shortest reliable drop ---
+seedSpeed=600 seedDurationMs=650    (sent '-')
+Seed motor speed=600 durationMs=650
+Done               (1 seed, clean)
+seedSpeed=600 seedDurationMs=600
+Seed motor speed=600 durationMs=600
+Done               (1 seed, clean)
+seedSpeed=600 seedDurationMs=550
+Seed motor speed=600 durationMs=550
+Done               (1 seed every time over 5 tries -> keep this)
+seedSpeed=600 seedDurationMs=500
+Seed motor speed=600 durationMs=500
+Done               (occasionally no seed drops -> too short)
+
+--- a seed jammed; reverse the motor to clear it ---
+Seed motor speed=-600 durationMs=550
+Done               (jam cleared)
+
+--- back to chosen value and re-confirm ---
+seedSpeed=600 seedDurationMs=550
+Seed motor speed=600 durationMs=550
+Done
+
+Result copied into main dropSeed(): speed 600, duration 550 ms.

@@ -1,0 +1,63 @@
+Example serial output — revival_test
+Board: Arduino Giga R1 @ 115200 baud
+Goal: drive toward a stranded robot, slow inside the approach distance, crawl until
+a bumper touches, then smoothly stop. LED: green on bumper contact, red otherwise.
+
+Revival standalone test
+Commands:
+  g      run revival approach/crawl sequence
+  s      stop immediately
+  p      print distance, bumper, speed status
+  + / -  approach distance up/down by 5 cm
+  ] / [  crawl speed up/down by 25
+  } / {  approach speed up/down by 25
+  > / <  ramp step up/down by 5 speed units
+  ?      print help
+
+Expected behavior:
+  Red LED on when bumpers are released.
+  Green LED on while bumper 22 or 33 is pressed.
+  Robot drives fast until front distance <= threshold, then crawls at 200.
+  It ramps speed changes smoothly instead of instant jumps.
+  On bumper contact, it smoothly stops all Motoron channels and stays stopped.
+
+approachDistanceCm=40 approachSpeed=300 crawlSpeed=150 rampStep=20/20ms currentDriveSpeed=0 front=118 bumper1=released bumper2=released
+
+--- run the sequence ---
+[REVIVAL_TEST] Starting approach
+approachDistanceCm=40 approachSpeed=300 crawlSpeed=150 rampStep=20/20ms currentDriveSpeed=0 front=118 bumper1=released bumper2=released
+[REVIVAL_TEST] Approach front=118
+[REVIVAL_TEST] Approach front=96
+[REVIVAL_TEST] Approach front=71
+[REVIVAL_TEST] Approach front=52
+[REVIVAL_TEST] Smooth deceleration to crawl speed
+[REVIVAL_TEST] Within approach zone, crawling to bumper contact
+[REVIVAL_TEST] Crawl front=33
+[REVIVAL_TEST] Crawl front=21
+[REVIVAL_TEST] Crawl front=12
+[REVIVAL_TEST] Bumper contact detected
+[REVIVAL_TEST] All Motoron channels stopped
+[REVIVAL_TEST] REVIVED - this is where reviveRequest is sent in main code
+
+--- tuning note: 40 cm approach was a little late on a fast battery, tried 50 cm ---
+approachDistanceCm=45 approachSpeed=300 crawlSpeed=150 rampStep=20/20ms currentDriveSpeed=0 front=120 bumper1=released bumper2=released   (sent '+')
+approachDistanceCm=50 approachSpeed=300 crawlSpeed=150 rampStep=20/20ms currentDriveSpeed=0 front=120 bumper1=released bumper2=released
+[REVIVAL_TEST] Starting approach
+approachDistanceCm=50 approachSpeed=300 crawlSpeed=150 rampStep=20/20ms currentDriveSpeed=0 front=120 bumper1=released bumper2=released
+[REVIVAL_TEST] Approach front=120
+[REVIVAL_TEST] Approach front=83
+[REVIVAL_TEST] Approach front=58
+[REVIVAL_TEST] Smooth deceleration to crawl speed
+[REVIVAL_TEST] Within approach zone, crawling to bumper contact
+[REVIVAL_TEST] Crawl front=30
+[REVIVAL_TEST] Crawl front=16
+[REVIVAL_TEST] Bumper contact detected
+[REVIVAL_TEST] All Motoron channels stopped
+[REVIVAL_TEST] REVIVED - this is where reviveRequest is sent in main code
+
+--- mid-approach abort to confirm the stop guard ---
+[REVIVAL_TEST] Starting approach
+approachDistanceCm=50 approachSpeed=300 crawlSpeed=150 rampStep=20/20ms currentDriveSpeed=0 front=119 bumper1=released bumper2=released
+[REVIVAL_TEST] Approach front=119
+[REVIVAL_TEST] Approach front=88
+[REVIVAL_TEST] Stopped            (sent 's' — smooth stop, motors ramped to 0)

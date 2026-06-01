@@ -1,0 +1,60 @@
+Example serial output — arena_rfid_route_test
+Board: Arduino Giga R1 @ 115200 baud
+Goal: run the dead-reckoning arena route end to end, with the green LED on while
+sampling IR, red when done, then gyro bias calibration, then an auto path run.
+RFID is used only as an early node stop, not for steering.
+COUNTS_PER_NODE = 176, DRIVE_SPEED = 300.
+
+[RFID] Reader initialized at 0x28
+[IR] Calibration running. Move robot left/right over the line.
+[IR] Calibration done.
+Keep robot still. Calibrating gyro...
+[GYRO] Bias Z=-0.013372
+[ARENA_DR] Path reset. Facing N, next index=1.
+
+Arena route: dead-reckoning controller with LED calibration status
+Commands:
+  p      run path
+  x      reset path
+  z      re-zero gyro bias
+  c      print encoder counts/status
+  s      stop immediately
+  ?      help
+COUNTS_PER_NODE=176
+DRIVE_SPEED=300
+
+--- AUTO_RUN fired automatically 1 s after setup ---
+[ARENA_DR] Node index 1 targetDir=N
+[ARENA_DR] Driving node, target counts=176
+L=178 R=176 avg=177 cm=25.10 headingDeg=0.37 facing=N
+[GYRO] Bias Z=-0.013204
+[ARENA_DR] Node index 2 targetDir=N
+[ARENA_DR] Driving node, target counts=176
+L=177 R=176 avg=176 cm=24.96 headingDeg=-0.44 facing=N
+[GYRO] Bias Z=-0.013090
+[ARENA_DR] Node index 3 targetDir=E
+[TURN] Facing E
+[GYRO] Bias Z=-0.013255
+[ARENA_DR] Driving node, target counts=176
+[RFID] Early node stop tag=A4B12C9D avgCounts=158
+[GYRO] Bias Z=-0.013140
+[ARENA_DR] Node index 4 targetDir=N
+[TURN] Facing N
+[GYRO] Bias Z=-0.013331
+[ARENA_DR] Driving node, target counts=176
+L=176 R=177 avg=176 cm=24.96 headingDeg=0.52 facing=N
+[GYRO] Bias Z=-0.013077
+[ARENA_DR] Node index 5 targetDir=N
+[ARENA_DR] Driving node, target counts=176
+L=179 R=176 avg=177 cm=25.10 headingDeg=0.19 facing=N
+[GYRO] Bias Z=-0.013012
+[ARENA_DR] Path complete
+
+--- operator pressed c to read the final pose ---
+L=179 R=176 avg=177 cm=25.10 headingDeg=0.19 facing=N
+
+--- pressed x to reset for another run ---
+[ARENA_DR] Path reset. Facing N, next index=1.
+
+Note: the RFID early stop fired on node 3 (floor tag A4B12C9D at 158/176 counts),
+which trims accumulated odometry drift at tagged nodes.

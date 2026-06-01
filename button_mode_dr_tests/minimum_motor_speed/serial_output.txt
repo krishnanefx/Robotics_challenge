@@ -1,0 +1,53 @@
+Example serial output — minimum_motor_speed
+Board: Arduino Giga R1 @ 115200 baud
+Goal: find the lowest Motoron speed that reliably starts each direction from rest.
+The motors do not move below ~175; 200 starts every time, so MIN_FORWARD_SPEED=200.
+
+Minimum usable motor speed test
+Commands:
+  + / -  speed up/down
+  f      drive both sides forward
+  b      drive both sides backward
+  l      left side only
+  r      right side only
+  s      stop
+Tune MIN_SPEED to the lowest speed that starts reliably every time.
+
+testSpeed=300 step=25
+
+--- start high, confirm motion, then step down ---
+Forward            (sent 'f' at 300: both sides move briskly)
+Stopped
+testSpeed=275      (sent '-')
+Forward            (still moves)
+Stopped
+testSpeed=250
+Forward
+Stopped
+testSpeed=225
+Forward            (moves, slightly slower to start)
+Stopped
+testSpeed=200
+Forward            (just starts cleanly every attempt -> keep)
+Stopped
+testSpeed=175
+Forward            (left side hesitates on ~1 in 3 starts -> too low)
+Stopped
+testSpeed=150
+Forward            (motors buzz, wheels do not turn -> below stall)
+Stopped
+
+--- back up to the chosen value and confirm both directions + each side ---
+testSpeed=200
+Forward
+Stopped
+Backward           (sent 'b': both sides reverse cleanly)
+Stopped
+Left side only     (sent 'l': left wheels turn, right still)
+Stopped
+Right side only    (sent 'r': right wheels turn, left still)
+Stopped
+
+Result: MIN_FORWARD_SPEED = 200 (lowest reliable start).
+Pivot turns were separately confirmed to need ~400; see gyro_turns / dead_reckoning_test
+where MIN_TURN_SPEED = 400 is used.

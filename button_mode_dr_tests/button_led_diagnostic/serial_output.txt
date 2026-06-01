@@ -1,0 +1,40 @@
+Example serial output — button_led_diagnostic
+Board: Arduino Giga R1 @ 115200 baud
+Captured while wiggling the mode button and both bumpers to confirm pin mapping
+before a run. All inputs use INPUT_PULLUP, so a press reads LOW.
+
+Button/LED diagnostic
+Pins use INPUT_PULLUP, so pressed should read LOW.
+Pin 49 = mode button, pin 22 = bumper 1, pin 33 = bumper 2.
+LED output follows bumpers only: green while pin 22/33 is pressed, red otherwise.
+BOOT | pin49 mode=HIGH/released pin22 bumper1=HIGH/released pin33 bumper2=HIGH/released
+POLL | pin49 mode=HIGH/released pin22 bumper1=HIGH/released pin33 bumper2=HIGH/released
+POLL | pin49 mode=HIGH/released pin22 bumper1=HIGH/released pin33 bumper2=HIGH/released
+
+--- pressed the mode button (pin 49) ---
+CHANGE | pin49 mode=LOW/PRESSED pin22 bumper1=HIGH/released pin33 bumper2=HIGH/released
+POLL | pin49 mode=LOW/PRESSED pin22 bumper1=HIGH/released pin33 bumper2=HIGH/released
+
+--- released the mode button ---
+CHANGE | pin49 mode=HIGH/released pin22 bumper1=HIGH/released pin33 bumper2=HIGH/released
+POLL | pin49 mode=HIGH/released pin22 bumper1=HIGH/released pin33 bumper2=HIGH/released
+
+--- pressed left bumper (pin 22): LED goes green ---
+CHANGE | pin49 mode=HIGH/released pin22 bumper1=LOW/PRESSED pin33 bumper2=HIGH/released
+POLL | pin49 mode=HIGH/released pin22 bumper1=LOW/PRESSED pin33 bumper2=HIGH/released
+
+--- released left bumper: LED back to red ---
+CHANGE | pin49 mode=HIGH/released pin22 bumper1=HIGH/released pin33 bumper2=HIGH/released
+
+--- pressed right bumper (pin 33): LED goes green ---
+CHANGE | pin49 mode=HIGH/released pin22 bumper1=HIGH/released pin33 bumper2=LOW/PRESSED
+POLL | pin49 mode=HIGH/released pin22 bumper1=HIGH/released pin33 bumper2=LOW/PRESSED
+
+--- pressed both bumpers at once ---
+CHANGE | pin49 mode=HIGH/released pin22 bumper1=LOW/PRESSED pin33 bumper2=LOW/PRESSED
+POLL | pin49 mode=HIGH/released pin22 bumper1=LOW/PRESSED pin33 bumper2=LOW/PRESSED
+
+--- released both: LED red, all inputs HIGH again ---
+CHANGE | pin49 mode=HIGH/released pin22 bumper1=HIGH/released pin33 bumper2=LOW/PRESSED
+CHANGE | pin49 mode=HIGH/released pin22 bumper1=HIGH/released pin33 bumper2=HIGH/released
+POLL | pin49 mode=HIGH/released pin22 bumper1=HIGH/released pin33 bumper2=HIGH/released
