@@ -1,145 +1,158 @@
-# Testing & Calibration Evidence — Group 6
+# Testing and Calibration Evidence
 
----
+This file summarises the evidence used for the final game sketches. The final integrated game modes were compile-verified. The individual subsystems were tested during Trial 2 using the sketches and serial logs under `Trial 2/Tuning code/`.
 
-## QTR Line Sensor Calibration
+## Final Sketch Compile Evidence
 
-**Method:** On startup the robot runs `qtr.calibrate()` 200 times over 4 seconds (20 ms per
-sample). During this window the sensor array is manually swept back and forth across the black
-tape line so every sensor sees both extremes.
+Both finals sketches compile for `arduino:mbed_giga:giga`:
 
-**What worked:**
-- Calibration consistently completes within the 4-second window.
-- After calibration, `sensorValues[i]` for sensors directly over the line reads ~900-1000;
-  sensors off the line read ~0-50.
-- The weighted error formula (`sum(sensorValue * weight)`) produces a reliable correction
-  signal for proportional control.
-
-**What did not work / known issues:**
-- If powered on with the sensor facing a non-white surface, calibration produces unusable
-  min/max values. Robot must start on a white surface with the line visible.
-- Direct sunlight can saturate sensors and shift calibration. All testing done under indoor
-  lab lighting.
-
----
-
-## Gyro Bias Calibration
-
-**Method:** `rezeroGyroBias()` samples 500 gyro Z readings over ~1.2 s. If variance
-> 0.05^2 rad^2/s^2 (robot is moving or vibrating), calibration is skipped.
-
-**Typical Serial output:**
-```
-[GYRO] Calibrating — keep robot still...
-[GYRO] Bias: 0.00312
+```text
+game_mode:      Sketch uses 321380 bytes (16%)
+game_mode_hard: Sketch uses 322004 bytes (16%)
 ```
 
-**What worked:**
-- Bias values consistently in the range +/-0.01 rad/s when robot is stationary.
-- Re-zero called after every turn corrects for thermal drift between manoeuvres.
+The final arena game has not been claimed as fully end-to-end arena-tested. It is integrated from the tested subsystems below.
 
-**What did not work:**
-- If vibration (nearby motors, uneven surface) is present at startup, calibration is skipped
-  and the previous (zero) bias is used, causing slight heading error.
+## Raw IR Line Tracking
 
----
+Evidence files:
+- `Trial 2/Tuning code/raw_ir_reader/serial_output.txt`
+- `Trial 2/Tuning code/line_tracking_tune/serial_output.txt`
 
-## Turn Accuracy — TURN_SCALE Tuning
+Final code uses raw RC timing reads on pins 23-31, not QTRSensors. The tuning sketches were used to confirm sensor ordering, branch-side detection, and threshold behaviour. Hand calibration samples min/max values while the robot is moved over black line and white floor.
 
-**Method:** Robot commanded to turn 90 degrees right four times (should return to start
-heading). Deviation measured visually.
+Important final values:
 
-| TURN_SCALE | Observed behaviour          | Outcome          |
-|------------|-----------------------------|------------------|
-| 1.15 (encoder) | ~5-10 degrees undershoot/turn | Too short     |
-| 0.90 (gyro, initial) | ~2-3 degrees overshoot | Slightly over |
-| 0.87 (gyro, tuned) | Visually close to 90 degrees | Good start   |
+```cpp
+RAW_SENSOR_TIMEOUT_US = 2500
+rawLineThreshold = 200
+lineBaseSpeed = 300
+lineTurnGain = 1.0
+branchSearchSpeed = 200
+```
 
-The gyro-based approach integrates actual rotation, so it is less sensitive to wheel slip
-than the encoder method. TURN_SCALE < 1.0 stops the motor slightly early; coasting carries
-the robot to the full angle.
+## Minimum Motor Speeds
 
-**Recommendation:** Start at 0.90, adjust by +/-0.03 per run until four consecutive 90
-degree turns return the robot to the original heading.
+Evidence file:
+- `Trial 2/Tuning code/minimum_motor_speed/serial_output.txt`
 
----
+Observed reliable movement thresholds:
 
-## Motor Speed / MIN_SPEED
+```cpp
+MIN_FORWARD_SPEED = 200
+MIN_TURN_SPEED = 400
+MAX_MOTOR_SPEED = 660
+```
 
-**Result:** Below 400 motor counts, drive motors stall and hum without moving on the test
-surface. 400 is the hard floor for all motion commands (`MIN_SPEED = 400`).
+These constants prevent commands below the motor stall floor during dead-reckoning and turns.
 
-At `DRIVE_SPEED = 600`, straight-line drive is stable and the heading correction loop
-(KP = 80) keeps the robot within ~5 degrees of target heading over a 25 cm node.
+## Encoder Counts Per Node
 
----
+Evidence file:
+- `Trial 2/Tuning code/encoder_counts_per_node/serial_output.txt`
 
-## Ultrasonic Distance Readings
+The arena grid uses 25 cm node spacing. With wheel diameter 6.5 cm and 144 encoder counts per revolution, the final value is approximately:
 
-Object placed at known distances; `readDistance()` called 10 times and averaged.
+```cpp
+COUNTS_PER_NODE = 176
+DRIVE_SPEED = 300
+DRIVE_KP = 80.0
+```
 
-| Actual distance | Front  | Left   | Right  |
-|-----------------|--------|--------|--------|
-| 10 cm           | 10-11  | 10-12  | 10-11  |
-| 25 cm           | 24-26  | 25-27  | 24-26  |
-| 50 cm           | 49-52  | 50-53  | 49-51  |
-| No object       | 999    | 999    | 999    |
+RFID early-stop was also tested in the dead-reckoning sketch to reduce node overshoot when tags are detected.
 
-Readings consistent within +/-2 cm at all competition-relevant distances (8 cm door,
-20 cm tunnel wall, 25 cm obstacle trigger, 40 cm revival approach).
+## Gyro Turns
 
-**Known issue:** Angled surfaces can produce false readings. The 999 cm timeout return
-reliably indicates open space.
+Evidence files:
+- `Trial 2/Tuning code/gyro_turns/serial_output.txt`
+- `Trial 2/Tuning code/dead_reckoning_test/serial_output.txt`
 
----
+The final code uses MPU6050 Z gyro integration for 90-degree turns. The motor stops before 90 degrees so wheel coast carries the robot to the target.
 
-## RFID Detection
+```cpp
+TURN_SCALE_LEFT = 0.96
+TURN_SCALE_RIGHT = 0.90
+TURN_FAST = 660
+TURN_SLOW = 566
+```
 
-- Reliable detection within ~3 cm directly above the reader.
-- Tilted card (>30 degrees) reduces range to ~1 cm.
-- The 200-iteration post-detection skip loop reliably prevents double-reads.
-- At full drive speed (600), the robot sometimes passes the tag before detection.
-  Reduced speed near known tag locations improves reliability.
+The gyro bias is recalibrated while stationary before/after key turns to reduce drift.
 
----
+## Airlock RFID and Ramp
 
-## MQTT / WiFi Comms
+Evidence files:
+- `Trial 2/Tuning code/airlock_rfid_reader/serial_output.txt`
+- `Trial 2/Tuning code/chain_mode_tune/serial_output.txt`
+- `Trial 2/Tuning code/gate_rfid_ramp_test/serial_output.txt`
 
-**Setup:** PhaseSpaceNetwork_2.4G, broker 192.168.0.74:1883.
+The known airlock tag used by the working server setup is:
 
-**What worked:**
-- Heartbeat watchdog (3 s) reliably stops the robot if WiFi drops.
-- `openAirlockReply accepted=true airlock=A` correctly transitions to LINE_FOLLOWING.
-- Status broadcast every 2 s visible in the lab dashboard.
+```cpp
+AIRLOCK_A_TAG_ID = "C2834BF4"
+```
 
-**Known issues:**
-- First connection can take 5-10 s if the broker is busy. Robot stays stopped (waiting
-  for button press) during this window, so no impact on operation.
-- 6-byte binary team status fields (queue/busy) are parsed but not yet acted on.
+The final code uses the tested airlock message format:
 
----
+```text
+type=openAirlock airlock=A tag_id=<uid> team_id=6 board_id=LEAK
+```
+
+The robot does not enter the ramp just because the server accepts. It waits for stable ultrasonic door clearance:
+
+```cpp
+doorOpenCm = 18
+required clear readings = 3
+```
+
+Ramp wall-following was softened to avoid wall impacts:
+
+```cpp
+tunnelBaseSpeed = 400
+wallKpUp = 25.0
+wallKpDown = 10.0
+wallKd = 3.0
+correction cap = +/-220
+```
+
+## Seed Dispenser
+
+Evidence file:
+- `Trial 2/Tuning code/drop_seed_duration/serial_output.txt`
+
+The final game-mode seed speed was changed for finals integration:
+
+```cpp
+SEED_SPEED = 150
+SEED_DURATION_MS = 550
+```
+
+The final game logic drops at most one seed per fertile unplanted RFID tag and sends `seedPlanted` after the local drop.
+
+## Revival
+
+Evidence file:
+- `Trial 2/Tuning code/revival_test/serial_output.txt`
+
+Final behaviour:
+
+- red LED by default
+- green LED while bumper 22 or 33 is pressed
+- fast approach until front ultrasonic sees the target inside approximately 40 cm
+- crawl into bumper contact
+- smooth motor stop
+- send `type=reviveRequest target_team=... target_board=...`
 
 ## Obstacle Avoidance
 
-**Method:** Box obstacle placed 20 cm ahead. `runObstacleMode()` run 5 times.
+Evidence source:
+- old obstacle mode and hard-mode integration
 
-- 5/5 successful swerves on flat surface.
-- 60-second timeout never triggered in testing.
-- `driveForwardDist()` timed-drive fallback triggered once when front sensor read 999
-  during swerve — robot still completed the path correctly.
+Hard mode only checks obstacles during arena node movement. It does not interfere with chain approach, door wait, or ramp traversal. The swerve uses the same dead-reckoning node turns as the arena game.
 
-**Known issues:** Turn accuracy during swerve affected by wheel slip on low-grip floors.
+## Honest Limitations
 
----
-
-## What We Would Improve With More Time
-
-1. **PID for line following** — add derivative term to reduce oscillation at intersections.
-2. **Obstacle detection in all modes** — currently a separate mode; integrating it as a
-   continuous check would be safer.
-3. **RFID position correction in dead reckoning** — tags are logged but do not currently
-   reset the position estimate. Using them as ground truth would improve multi-node accuracy.
-4. **Revival target identification** — `sendReviveRequest("?","?")` needs target team/board
-   once the other robot's identity is known from a distress broadcast.
-5. **LED pin assignment** — `redPin` and `greenPin` in `button_mode_dr.ino` still set to -1
-   pending physical wiring confirmation.
+- The final `game_mode` and `game_mode_hard` sketches have been compile-verified but not claimed as full arena end-to-end tested.
+- RFID detection depends on the reader passing close enough over each tag.
+- Gyro bias calibration requires the robot to be still.
+- Ultrasonic readings can miss angled surfaces; door opening uses three stable clear readings to reduce false starts.
+- The emergency return uses the robot's internal grid estimate, so accumulated drift can affect how accurately it reaches the top tunnel node.

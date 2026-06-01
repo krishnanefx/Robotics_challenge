@@ -1,9 +1,8 @@
-// Arena RFID route test.
-// This intentionally uses the dead-reckoning route after a real hand-moved IR
-// calibration show: green LED while sampling IR, red when done, then gyro bias
-// calibration after a 2 second pause. The RFID reader is used as an early node
-// stop when a tag is seen, but line tracking is not used for route control.
-// Main tuning values to copy back: COUNTS_PER_NODE, DRIVE_SPEED, TURN_SCALE_*.
+// Dead-reckoning standalone tuner.
+// Drives the 25 cm node path using encoders for distance and gyro yaw for
+// 90-degree turns. RFID can stop a node early when a tag is seen. This is the
+// source of the tuned DR values used by the final button-mode sketch.
+// Main knobs: COUNTS_PER_NODE, DRIVE_SPEED, DRIVE_KP, TURN_SCALE_LEFT/RIGHT.
 
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
@@ -19,17 +18,6 @@ MotoronI2C mc1(18);  // ch2 = right drive, ch3 = left drive
 MotoronI2C mc2(17);  // ch2 = right drive, ch3 = left drive
 Adafruit_MPU6050 mpu;
 MFRC522_I2C* rfid = nullptr;
-
-const int redPin = 46;
-const int greenPin = 47;
-
-const uint8_t SensorCount = 9;
-uint8_t sensorPins[SensorCount] = {23, 24, 25, 26, 27, 28, 29, 30, 31};
-uint16_t sensorValues[SensorCount];
-uint16_t sensorMin[SensorCount];
-uint16_t sensorMax[SensorCount];
-const uint16_t RAW_SENSOR_TIMEOUT_US = 2500;
-const unsigned long IR_CALIBRATION_MS = 6000;
 
 const int encoder1PinA = 52;
 const int encoder1PinB = 50;
@@ -52,10 +40,8 @@ const float TURN_SCALE_RIGHT = 0.90f;
 
 const int MIN_FORWARD_SPEED = 200;
 const int MIN_TURN_SPEED = 400;
-const float ALPHA = 0.98f;
 
-const bool AUTO_RUN = true;
-const bool USE_RFID_EARLY_STOP = true;
+const float ALPHA = 0.98f;
 
 volatile long encoderCount1 = 0;
 volatile long encoderCount2 = 0;
@@ -77,62 +63,7 @@ int pathy[NODE_COUNT] = {0, 1, 2, 2, 3, 4};
 int drIndex = 1;
 bool drDone = false;
 bool runningPath = false;
-bool autoRunStarted = false;
-
-void setCalibrationLed(bool calibrating) {
-  digitalWrite(greenPin, calibrating ? HIGH : LOW);
-  digitalWrite(redPin, calibrating ? LOW : HIGH);
-}
-
-void readRawIrSensors() {
-  for (uint8_t i = 0; i < SensorCount; i++) {
-    pinMode(sensorPins[i], OUTPUT);
-    digitalWrite(sensorPins[i], HIGH);
-  }
-  delayMicroseconds(10);
-
-  unsigned long start = micros();
-  for (uint8_t i = 0; i < SensorCount; i++) {
-    pinMode(sensorPins[i], INPUT);
-    sensorValues[i] = RAW_SENSOR_TIMEOUT_US;
-  }
-
-  bool done = false;
-  while (!done && micros() - start < RAW_SENSOR_TIMEOUT_US) {
-    unsigned long elapsed = micros() - start;
-    done = true;
-    for (uint8_t i = 0; i < SensorCount; i++) {
-      if (sensorValues[i] == RAW_SENSOR_TIMEOUT_US && digitalRead(sensorPins[i]) == LOW) {
-        sensorValues[i] = elapsed;
-      }
-      if (sensorValues[i] == RAW_SENSOR_TIMEOUT_US) done = false;
-    }
-  }
-}
-
-void calibrateIrSensors() {
-  stopMotors();
-  for (uint8_t i = 0; i < SensorCount; i++) {
-    sensorMin[i] = RAW_SENSOR_TIMEOUT_US;
-    sensorMax[i] = 0;
-  }
-
-  Serial.println("[IR] Calibration running. Move robot left/right over the line.");
-  setCalibrationLed(true);
-
-  unsigned long start = millis();
-  while (millis() - start < IR_CALIBRATION_MS) {
-    readRawIrSensors();
-    for (uint8_t i = 0; i < SensorCount; i++) {
-      if (sensorValues[i] < sensorMin[i]) sensorMin[i] = sensorValues[i];
-      if (sensorValues[i] > sensorMax[i]) sensorMax[i] = sensorValues[i];
-    }
-    delay(20);
-  }
-
-  setCalibrationLed(false);
-  Serial.println("[IR] Calibration done.");
-}
+bool useRfidEarlyStop = true;
 
 void countEncoder1() {
   if (digitalRead(encoder1PinB) == HIGH) encoderCount1++;
@@ -165,14 +96,19 @@ byte findRfidI2CAddress() {
   byte foundAddress = 0;
   byte foundCount = 0;
 
+  Serial.println("[RFID] Scanning Wire2 I2C bus...");
   for (byte address = 1; address < 127; address++) {
     RFID_WIRE.beginTransmission(address);
     if (RFID_WIRE.endTransmission() == 0) {
       if (foundAddress == 0) foundAddress = address;
       foundCount++;
+      Serial.print("[RFID] Found I2C device at 0x");
+      if (address < 0x10) Serial.print("0");
+      Serial.println(address, HEX);
     }
   }
 
+  if (foundCount == 0) Serial.println("[RFID] No device found; odometry-only mode");
   if (foundCount > 1) Serial.println("[RFID] Multiple devices found; using first");
   return foundAddress;
 }
@@ -182,10 +118,7 @@ void setupRfid() {
   delay(100);
 
   byte address = findRfidI2CAddress();
-  if (address == 0) {
-    Serial.println("[RFID] No reader found; odometry-only mode");
-    return;
-  }
+  if (address == 0) return;
 
   rfid = new MFRC522_I2C(address, RFID_RESET_PIN, &RFID_WIRE);
   rfid->PCD_Init();
@@ -212,7 +145,7 @@ bool serialStopRequested() {
   if (c == 's' || c == 'S') {
     stopMotors();
     runningPath = false;
-    Serial.println("[ARENA] Stopped");
+    Serial.println("[DR_TEST] Stopped");
     return true;
   }
   return false;
@@ -240,10 +173,13 @@ void rezeroGyroBias() {
 
   float mean = sum / N;
   float variance = (sumSq / N) - (mean * mean);
-  if (variance <= (0.05f * 0.05f)) {
-    gyroBiasZ = mean;
+  if (variance > (0.05f * 0.05f)) {
+    Serial.print("[GYRO] Re-zero skipped, variance=");
+    Serial.println(variance, 6);
+    return;
   }
 
+  gyroBiasZ = mean;
   Serial.print("[GYRO] Bias Z=");
   Serial.println(gyroBiasZ, 6);
 }
@@ -359,7 +295,7 @@ void faceDir(int targetDir) {
 
 void driveOneNode() {
   zeroDriveState();
-  Serial.print("[ARENA] Driving node, target counts=");
+  Serial.print("[DR_TEST] Driving one node, target counts=");
   Serial.println(COUNTS_PER_NODE);
 
   while (true) {
@@ -375,7 +311,7 @@ void driveOneNode() {
     if (avg >= COUNTS_PER_NODE) break;
 
     char tagId[12];
-    if (USE_RFID_EARLY_STOP && readRfidTag(tagId, sizeof(tagId))) {
+    if (useRfidEarlyStop && readRfidTag(tagId, sizeof(tagId))) {
       Serial.print("[RFID] Early node stop tag=");
       Serial.print(tagId);
       Serial.print(" avgCounts=");
@@ -404,12 +340,14 @@ void resetPath() {
   runningPath = false;
   direction = 1;
   stopMotors();
-  setCalibrationLed(false);
-  Serial.println("[ARENA] Path reset. Facing N, next index=1.");
+  Serial.println("[DR_TEST] Path reset. Facing N, next index=1.");
 }
 
 void runPath() {
-  if (drDone) return;
+  if (drDone) {
+    Serial.println("[DR_TEST] Path already complete. Send x to reset.");
+    return;
+  }
 
   runningPath = true;
   for (; drIndex < NODE_COUNT && runningPath; drIndex++) {
@@ -422,7 +360,7 @@ void runPath() {
     else if (dx > 0) targetDir = 2;
     else targetDir = 0;
 
-    Serial.print("[ARENA] Node index ");
+    Serial.print("[DR_TEST] Node index ");
     Serial.print(drIndex);
     Serial.print(" targetDir=");
     Serial.println(dirNames[targetDir]);
@@ -435,33 +373,45 @@ void runPath() {
   stopMotors();
   drDone = true;
   runningPath = false;
-  setCalibrationLed(false);
-  Serial.println("[ARENA] Path complete");
+  Serial.println("[DR_TEST] Path complete");
 }
 
 void printHelp() {
   Serial.println();
-  Serial.println("Arena route: dead-reckoning controller with LED calibration status");
+  Serial.println("Dead reckoning standalone test");
   Serial.println("Commands:");
-  Serial.println("  p      run path");
-  Serial.println("  x      reset path");
+  Serial.println("  f      drive one 25 cm node");
+  Serial.println("  l      gyro turn left 90 deg");
+  Serial.println("  r      gyro turn right 90 deg");
+  Serial.println("  p      run full path");
+  Serial.println("  x      reset path state");
   Serial.println("  z      re-zero gyro bias");
   Serial.println("  c      print encoder counts/status");
+  Serial.println("  i      toggle RFID early stop");
   Serial.println("  s      stop immediately");
-  Serial.println("  ?      help");
+  Serial.println("  ?      print help");
+  Serial.println();
   Serial.print("COUNTS_PER_NODE=");
   Serial.println(COUNTS_PER_NODE);
   Serial.print("DRIVE_SPEED=");
-  Serial.println(DRIVE_SPEED);
+  Serial.print(DRIVE_SPEED);
+  Serial.print(" MIN_FORWARD_SPEED=");
+  Serial.print(MIN_FORWARD_SPEED);
+  Serial.print(" MIN_TURN_SPEED=");
+  Serial.println(MIN_TURN_SPEED);
+  Serial.print("TURN_SCALE_LEFT=");
+  Serial.print(TURN_SCALE_LEFT, 2);
+  Serial.print(" TURN_SCALE_RIGHT=");
+  Serial.println(TURN_SCALE_RIGHT, 2);
+  Serial.print("RFID early stop=");
+  Serial.print(useRfidEarlyStop ? "ON" : "OFF");
+  Serial.print(" reader=");
+  Serial.println(rfid == nullptr ? "not found" : "ready");
 }
 
 void setup() {
   Serial.begin(115200);
   while (!Serial && millis() < 2000) delay(10);
-
-  pinMode(redPin, OUTPUT);
-  pinMode(greenPin, OUTPUT);
-  setCalibrationLed(false);
 
   Wire.begin();
   Wire1.begin();
@@ -488,38 +438,38 @@ void setup() {
   mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
   setupRfid();
 
-  calibrateIrSensors();
-  delay(2000);
-
   Serial.println("Keep robot still. Calibrating gyro...");
   rezeroGyroBias();
   resetPath();
   printHelp();
-
-  if (AUTO_RUN) {
-    delay(1000);
-    autoRunStarted = true;
-    runPath();
-  }
 }
 
 void loop() {
   if (!Serial.available()) return;
 
   char c = Serial.read();
-  if (c == 'p' || c == 'P') {
+  if (c == 'f' || c == 'F') {
+    driveOneNode();
+  } else if (c == 'l' || c == 'L') {
+    turnLeft();
+  } else if (c == 'r' || c == 'R') {
+    turnRight();
+  } else if (c == 'p' || c == 'P') {
     runPath();
   } else if (c == 'x' || c == 'X') {
     resetPath();
-    autoRunStarted = false;
   } else if (c == 'z' || c == 'Z') {
     rezeroGyroBias();
   } else if (c == 'c' || c == 'C') {
     printCounts();
+  } else if (c == 'i' || c == 'I') {
+    useRfidEarlyStop = !useRfidEarlyStop;
+    Serial.print("[DR_TEST] RFID early stop=");
+    Serial.println(useRfidEarlyStop ? "ON" : "OFF");
   } else if (c == 's' || c == 'S') {
     stopMotors();
     runningPath = false;
-    Serial.println("[ARENA] Stopped");
+    Serial.println("[DR_TEST] Stopped");
   } else if (c == '?') {
     printHelp();
   }

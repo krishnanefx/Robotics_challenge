@@ -1,214 +1,104 @@
-# Software Overview — Group 6 Robot
+# Software Overview - Finals Game Mode
 
-## File / Module Map
+## High-Level Architecture
 
-```
-button_mode_dr.ino          ← entry point
-│  Globals: all hardware objects, pin constants, path array,
-│           chainState, robotRunning, enable, presses
-│  setup()  — initialises all hardware, calibrates QTR + gyro,
-│             connects MQTT
-│  loop()   — pumps comms, checks kill switch, dispatches mode
-│
-├── helpers.ino
-│     readDistance()       ultrasonic HC-SR04 single reading
-│     checkButton()        debounced kill-switch + revival + mode-advance
-│     updateLEDs()         non-blocking red blink / green solid
-│     setupMotoron()       Motoron reinit + clear reset flag
-│     dropSeed()           mc2 ch1 pulse
-│     stopMotors()         zero all drive channels
-│     findI2CAddress()     Wire2 scan for RFID
-│
-├── motion.ino
-│     countEncoder1/2()    ISRs — RISING edge on A pins
-│     readGyroZ_radps()    raw MPU-6050 Z read
-│     rezeroGyroBias()     500-sample mean/variance check
-│     updateHeading()      complementary filter (gyro 98% + enc 2%)
-│     turnInPlace()        gyro-based closed-loop 90° pivot
-│     turnLeft/Right()     wrappers → ±PI/2
-│     driveToNode()        encoder odometry + heading correction
-│     driveOneNode()       drive + RFID log + seed + bias re-zero
-│     runDeadReckoning()   full pathx/pathy sequence (mode 3)
-│
-├── line_following.ino
-│     onLine()             any QTR sensor > 100
-│     turnLeftQTR()        spin CCW until line lost then re-found
-│     turnRightQTR()       spin CW  until line lost then re-found
-│     faceDirQTR()         absolute heading (QTR, arena only)
-│     faceNorth/S/E/W()    wrappers → faceDirQTR
-│     followLine()         proportional follow; RFID → update x/y,
-│                          face next waypoint, 200-iter skip loop
-│     goToPointB()         pre-programmed turn sequence + door stop
-│
-├── wall_following.ino
-│     getTilt()            complementary filter pitch (MPU-6050)
-│     waitForDoor()        block while front < 8 cm
-│     navigateTunnel()     dual-wall PD + tilt; returns true in tunnel
-│     faceDir()            encoder-based cardinal turn (tunnel phase)
-│     getTagId()           RFID UID → uppercase hex String
-│     runChainMode()       NAVIGATING → WAITING_AIRLOCK → LINE_FOLLOWING
-│
-├── obstacle_avoidance.ino
-│     checkAllDirections() read all 3 ultrasonic into obsDist[]
-│     obsTurnInPlace()     encoder-based pivot (OBS speeds)
-│     obsLeft/Right90()    wrappers
-│     driveForwardDist()   front-sensor odometer drive
-│     avoidObstacle()      8-step 3-point box swerve (60 s timeout)
-│     runObstacleMode()    mode 5 entry: drive + swerve on detect
-│
-├── comms.ino
-│     onCommsMessage()     MQTT receive handler (heartbeat, disable,
-│                          openAirlockReply, reviveReply, 6-byte status)
-│     commsHeartbeatCheck() stop if no heartbeat for 3 s
-│     sendStatusUpdate()   register every 10 s, status every 2 s
-│     requestAirlock()     send openAirlock to server
-│     waitForAirlockAccepted() blocking poll with timeout
-│     sendReviveRequest()  notify server of revival
-│
-└── revival.ino
-      runRevival()         phase 1: full speed to 40 cm
-                           phase 2: MIN_SPEED crawl to bumper contact
-                           → sendReviveRequest() to server
+```text
+setup()
+  |-- initialise WiFi/MiniMessenger, Motoron, RFID, MPU6050, ultrasonics, encoders, LEDs
+  |-- raw IR hand calibration
+  |-- gyro yaw calibration
+  `-- start GAME_CHAIN_ENTRY
+
+loop()
+  |-- messenger.loop()
+  |-- killSwitchActive()       highest priority, pin 49
+  |-- commsHeartbeatCheck()
+  |-- updateLEDs()
+  |-- emergency/revival checks
+  `-- game state dispatcher
 ```
 
----
+The final sketches are standalone `.ino` files so Arduino IDE can upload them directly. The code is organised into functions rather than one large loop: comms parsing, raw line sensing, chain/ramp behaviour, dead-reckoning movement, fertility/seed logic, revival, and obstacle avoidance are separated.
 
-## Component Interaction Diagram
+## Main Components
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      PHYSICAL INPUTS                            │
-│                                                                 │
-│  Encoder 1 (52/50) ─────┐                                      │
-│  Encoder 2 (53/51) ─────┤──→ encoderCount1/2 (volatile)        │
-│                          │                                      │
-│  MPU-6050 (Wire) ────────┼──→ gyro Z, accel X/Y/Z              │
-│                          │                                      │
-│  HC-SR04 F/L/R ──────────┼──→ readDistance()                   │
-│                          │                                      │
-│  QTR x9 (23-31) ─────────┼──→ sensorValues[]                   │
-│                          │                                      │
-│  RFID (Wire2) ───────────┼──→ rfid->uid                        │
-│                          │                                      │
-│  Buttons 49/47/45 ───────┘──→ checkButton()                    │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │
-                    button_mode_dr.ino
-                    loop() dispatcher
-                           │
-        ┌──────────────────┼──────────────────┐
-        │                  │                  │
-        ▼                  ▼                  ▼
-  enable (MQTT)    robotRunning (HW)    presses (mode)
-  comms.ino        checkButton()        checkButton()
-        │                  │                  │
-        └──────────┬────────┘                  │
-                   ▼                           ▼
-           if !enable OR             ┌─────────────────┐
-           !robotRunning             │  Mode dispatch  │
-           → stopMotors()            │  0: followLine  │
-                                     │  1: runChainMode│
-                                     │  2: followLine  │
-                                     │  3: runDR       │
-                                     │  4: runRevival  │
-                                     │  5: runObstacle │
-                                     └────────┬────────┘
-                                              │
-        ┌─────────────────────────────────────┼─────────────────────┐
-        │                  │                  │                     │
-        ▼                  ▼                  ▼                     ▼
-  line_following      wall_following       motion.ino         obstacle_avoidance
-  QTR sensor          MPU tilt            Gyro turns          Ultrasonic swerve
-  RFID pos tracking   Dual-wall PD        Enc odometry        Encoder pivots
-  QTR turns           Chain state m/c     DR path             3-point box path
+| Component | Responsibilities |
+|---|---|
+| Raw IR line sensing | Reads pins 23-31 using RC discharge timing. Used for base line approach and branch detection. |
+| MiniMessenger comms | Handles heartbeat, airlock reply, emergency, distress, fertility replies, and outbound status/messages. |
+| Chain/ramp state machine | Moves from base line approach to door wait, then ramp/tunnel wall following, then arena game. |
+| Dead-reckoning movement | Uses encoders for 25 cm node distance and gyro Z for 90-degree turns. |
+| Fertility/seed subsystem | Reads RFID tags, asks server if fertile, drops one seed, sends `seedPlanted`, caches tag IDs. |
+| Safety subsystem | Pin 49 kill latch, server emergency return, heartbeat/disable stop. |
+| Revival subsystem | Parses distress target, approaches with ultrasonic, detects bumper contact, sends `reviveRequest`. |
+| Hard mode obstacle subsystem | Checks front ultrasonic during arena node moves and runs a node-based box swerve. |
 
-        └─────────────────────────────────────┼─────────────────────┘
-                                              │
-                                     ┌────────▼────────┐
-                                     │  MOTOR OUTPUTS  │
-                                     │  mc1 ch2 = Left │
-                                     │  mc1 ch3 = Right│
-                                     │  mc2 ch2 = Left │
-                                     │  mc2 ch3 = Right│
-                                     │  mc2 ch1 = Seed │
-                                     └─────────────────┘
+## State Machines
+
+### Game State
+
+```text
+GAME_CHAIN_ENTRY
+  -> existing chain/ramp code completes
+  -> GAME_INITIAL_PATTERN
+  -> GAME_SERPENTINE
+  -> GAME_EMERGENCY_EXIT when 5 seeds planted, sweep complete, or emergency
+  -> GAME_TOP_TUNNEL_STOP
 ```
 
----
+### Chain State
 
-## Enable / Safety Logic
+```text
+CH_APPROACH
+  raw line following + RFID tag read
+  requestAirlock("A", tag)
+  continue line route until final line loss
 
-Two independent flags must BOTH be true for the robot to move:
+CH_WAIT_ENTRY
+  stop motors
+  wait for server accepted=true and stable ultrasonic door-open reading
 
-```
-enable       — controlled by MQTT server (heartbeat, emergency messages)
-robotRunning — controlled by physical buttons and kill switch
+CH_TUNNEL
+  drive through door and ramp/tunnel using tilt + side ultrasonics
 
-Robot moves iff:  enable == 1  AND  robotRunning == true
-
-Kill switch (pin 45) → robotRunning = false   (instant stop)
-Button 1 or 2       → robotRunning = true    (when stopped: revival/start)
-MQTT heartbeat lost → enable = 0              (3 s watchdog)
-MQTT type=disable   → enable = 0
-```
-
----
-
-## Chain Mode State Machine (Mode 1)
-
-```
-chainState: NAVIGATING ──────────────────────────────────┐
-                │                                         │
-                │ navigateTunnel() returns true           │
-                ▼                                         │
-          (loop in tunnel)                                │
-                │                                         │
-                │ tilt returns to flat, walls open        │
-                ▼                                         │
-          navigateTunnel() returns false                  │
-                │                                         │
-                ├── RFID == AIRLOCK_A_TAG_ID              │
-                │       → requestAirlock("A")             │
-                │       → chainState = WAITING_AIRLOCK    │
-                │                                         │
-                │             WAITING_AIRLOCK             │
-                │               stopMotors()              │
-                │               [wait for MQTT reply]     │
-                │               openAirlockReply +        │
-                │               accepted=true + airlock=A │
-                │               → chainState=LINE_FOLLOWING│
-                │               → inArena = true          │
-                │                                         │
-                └── no airlock tag found after ramp       │
-                        → chainState = LINE_FOLLOWING ────┘
-                        → inArena = true
-
-chainState: LINE_FOLLOWING
-  followLine() — QTR proportional, RFID position tracking
+CH_ARENA
+  hand off to arena game path
 ```
 
----
+## Data Flow
 
-## MQTT Message API
+```text
+Sensors
+  raw IR -> line error / branch detection
+  RFID -> airlock tag or arena fertility tag
+  MPU6050 -> gyro turn integration and ramp tilt
+  encoders -> 25 cm node distance
+  ultrasonics -> door/ramp/obstacle/revival decisions
+  bumpers -> revival contact and LED state
 
-### Inbound (server → robot)
+Decision logic
+  safety priority -> game state -> movement command
 
-| Message | Action |
-|---------|--------|
-| `type=heartbeat enable=1` | `enable=1`, update watchdog timestamp |
-| `type=heartbeat enable=0` | `enable=0`, stop motors |
-| `type=disable` | `enable=0`, stop motors |
-| `type=emergency` | `enable=0`, stop motors |
-| `type=openAirlockReply accepted=true airlock=A` | `chainState=LINE_FOLLOWING`, `inArena=true` |
-| `type=openAirlockReply accepted=false` | Log denial reason |
-| `type=reviveReply` | Log to Serial |
-| 6-byte binary (byte 4 set) | Emergency flag → stop |
+Actuators
+  Motoron ch2/ch3 -> drive motors
+  Motoron 17 ch1 -> seed dispenser
+  LEDs 46/47 -> calibration and bumper-contact status
+```
 
-### Outbound (robot → server)
+## Safety Priority
 
-| Message | When sent |
-|---------|-----------|
-| `type=register team_id=6 board_id=LEAK` | Every 10 s |
-| `STATUS:<mode> ENABLE:<n> PRESSES:<n>` | Every 2 s |
-| `type=openAirlock airlock=A tag_id=<uid> board_id=LEAK` | Airlock A RFID detected |
-| `type=reviveRequest target_team=? target_board=?` | Bumper contact in mode 4 |
+1. Pin 49 kill switch: stop all Motoron channels immediately and latch stopped.
+2. Server emergency: stop current task and route to the top tunnel node.
+3. Server disable or heartbeat timeout: stop and hold.
+4. Revival distress: interrupt planting unless emergency/kill is active.
+5. Hard-mode obstacle avoidance.
+6. Normal planting/game logic.
+
+## Final Code Variants
+
+- `game_mode`: normal finals behaviour without obstacle swerve.
+- `game_mode_hard`: identical code path with `HARD_MODE_OBSTACLES = true`, enabling obstacle checks only during arena node movement.
+
+## Why Raw IR Instead of QTRSensors
+
+The final code reads the RC reflectance sensors directly. This reduces library dependency risk and keeps the behaviour consistent with Trial 2 tuning sketches. Calibration samples min/max raw timings during a hand-moved calibration window and normalises each sensor to a 0-1000 range.
