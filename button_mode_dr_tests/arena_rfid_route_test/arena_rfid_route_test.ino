@@ -212,7 +212,7 @@ bool serialStopRequested() {
   if (c == 's' || c == 'S') {
     stopMotors();
     runningPath = false;
-    Serial.println("[ARENA_DR] Stopped");
+    Serial.println("[ARENA] Stopped");
     return true;
   }
   return false;
@@ -359,7 +359,7 @@ void faceDir(int targetDir) {
 
 void driveOneNode() {
   zeroDriveState();
-  Serial.print("[ARENA_DR] Driving node, target counts=");
+  Serial.print("[ARENA] Driving node, target counts=");
   Serial.println(COUNTS_PER_NODE);
 
   while (true) {
@@ -405,7 +405,7 @@ void resetPath() {
   direction = 1;
   stopMotors();
   setCalibrationLed(false);
-  Serial.println("[ARENA_DR] Path reset. Facing N, next index=1.");
+  Serial.println("[ARENA] Path reset. Facing N, next index=1.");
 }
 
 void runPath() {
@@ -422,7 +422,7 @@ void runPath() {
     else if (dx > 0) targetDir = 2;
     else targetDir = 0;
 
-    Serial.print("[ARENA_DR] Node index ");
+    Serial.print("[ARENA] Node index ");
     Serial.print(drIndex);
     Serial.print(" targetDir=");
     Serial.println(dirNames[targetDir]);
@@ -436,7 +436,7 @@ void runPath() {
   drDone = true;
   runningPath = false;
   setCalibrationLed(false);
-  Serial.println("[ARENA_DR] Path complete");
+  Serial.println("[ARENA] Path complete");
 }
 
 void printHelp() {
@@ -519,7 +519,7 @@ void loop() {
   } else if (c == 's' || c == 'S') {
     stopMotors();
     runningPath = false;
-    Serial.println("[ARENA_DR] Stopped");
+    Serial.println("[ARENA] Stopped");
   } else if (c == '?') {
     printHelp();
   }

@@ -1,7 +1,7 @@
 // Dead-reckoning standalone tuner.
 // Drives the 25 cm node path using encoders for distance and gyro yaw for
 // 90-degree turns. RFID can stop a node early when a tag is seen. This is the
-// source of the tuned DR values used by the final button-mode sketch.
+// source of the tuned dead-reckoning values used by the final button-mode sketch.
 // Main knobs: COUNTS_PER_NODE, DRIVE_SPEED, DRIVE_KP, TURN_SCALE_LEFT/RIGHT.
 
 #include <Adafruit_MPU6050.h>
@@ -145,7 +145,7 @@ bool serialStopRequested() {
   if (c == 's' || c == 'S') {
     stopMotors();
     runningPath = false;
-    Serial.println("[DR_TEST] Stopped");
+    Serial.println("[DEAD_RECKONING] Stopped");
     return true;
   }
   return false;
@@ -295,7 +295,7 @@ void faceDir(int targetDir) {
 
 void driveOneNode() {
   zeroDriveState();
-  Serial.print("[DR_TEST] Driving one node, target counts=");
+  Serial.print("[DEAD_RECKONING] Driving one node, target counts=");
   Serial.println(COUNTS_PER_NODE);
 
   while (true) {
@@ -340,12 +340,12 @@ void resetPath() {
   runningPath = false;
   direction = 1;
   stopMotors();
-  Serial.println("[DR_TEST] Path reset. Facing N, next index=1.");
+  Serial.println("[DEAD_RECKONING] Path reset. Facing N, next index=1.");
 }
 
 void runPath() {
   if (drDone) {
-    Serial.println("[DR_TEST] Path already complete. Send x to reset.");
+    Serial.println("[DEAD_RECKONING] Path already complete. Send x to reset.");
     return;
   }
 
@@ -360,7 +360,7 @@ void runPath() {
     else if (dx > 0) targetDir = 2;
     else targetDir = 0;
 
-    Serial.print("[DR_TEST] Node index ");
+    Serial.print("[DEAD_RECKONING] Node index ");
     Serial.print(drIndex);
     Serial.print(" targetDir=");
     Serial.println(dirNames[targetDir]);
@@ -373,7 +373,7 @@ void runPath() {
   stopMotors();
   drDone = true;
   runningPath = false;
-  Serial.println("[DR_TEST] Path complete");
+  Serial.println("[DEAD_RECKONING] Path complete");
 }
 
 void printHelp() {
@@ -464,12 +464,12 @@ void loop() {
     printCounts();
   } else if (c == 'i' || c == 'I') {
     useRfidEarlyStop = !useRfidEarlyStop;
-    Serial.print("[DR_TEST] RFID early stop=");
+    Serial.print("[DEAD_RECKONING] RFID early stop=");
     Serial.println(useRfidEarlyStop ? "ON" : "OFF");
   } else if (c == 's' || c == 'S') {
     stopMotors();
     runningPath = false;
-    Serial.println("[DR_TEST] Stopped");
+    Serial.println("[DEAD_RECKONING] Stopped");
   } else if (c == '?') {
     printHelp();
   }
