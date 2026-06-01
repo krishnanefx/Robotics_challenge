@@ -1,6 +1,6 @@
 # Robotics Challenge - Group 6 Programming Submission
 
-This repository is the programming submission for the COMP0204 2026 Robotics Challenge. It is organised for the marking scheme: final code is easy to identify, setup/upload steps are explicit, and the supporting documents explain software architecture, flowcharts, and calibration evidence.
+This repository is the programming submission for the COMP0204 2026 Robotics Challenge.
 
 ## Final Code for Finals Day
 
@@ -11,7 +11,7 @@ Use these sketches for the final robot:
 | `Finals_game_mode/game_mode/game_mode.ino` | Main finals code: chain/ramp entry, arena RFID fertility checks, seed planting, emergency return, and revival support. |
 | `Finals_game_mode/game_mode_hard/game_mode_hard.ino` | Hard-difficulty version: same behaviour as `game_mode`, plus arena-only obstacle avoidance. |
 
-The Trial 2 tuning sketches are kept as evidence and calibration history. They are not the final upload target.
+The Trial 2 tuning sketches are kept as evidence and calibration history. 
 
 ## Repository Structure
 
@@ -35,8 +35,7 @@ Robotics_challenge/
 `-- docs/
     |-- software-overview.md
     |-- flowcharts.md
-    |-- calibration.md
-    `-- viva_answers.md
+    `-- calibration.md
 ```
 
 ## Hardware Pin Map
@@ -66,8 +65,6 @@ Install these in Arduino IDE Library Manager or equivalent:
 - `Adafruit Unified Sensor`
 - `MFRC522_I2C`
 - `MiniMessenger`
-
-`QTRSensors` is not required by the final code.
 
 ## Upload and Run
 
@@ -105,7 +102,7 @@ Install these in Arduino IDE Library Manager or equivalent:
 
 ## Testing Evidence Summary
 
-The final game sketches are compile-verified. The full final arena game has not been claimed as fully tested end-to-end. Trial 2 subsystem tests provide evidence for the major behaviours integrated into the finals code:
+The final game sketches are compile-verified. The full final arena game has not been fully tested end-to-end. Trial 2 subsystem tests provide evidence for the major behaviours integrated into the finals code:
 
 - raw IR line following and branch sensing
 - RFID reader and airlock tag read
