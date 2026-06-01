@@ -1,189 +1,128 @@
-# Robotics Challenge — Group 6 (COMP0204, 2025)
+# Robotics Challenge - Group 6 Programming Submission
 
-Viva / test-run code: [`button_mode_dr/`](button_mode_dr/)
-This is the sketch for trial run 2. All behaviours demonstrated in the viva are in this folder.
+This repository is the programming submission for the COMP0204 2026 Robotics Challenge. It is organised for the marking scheme: final code is easy to identify, setup/upload steps are explicit, and the supporting documents explain software architecture, flowcharts, and calibration evidence.
 
----
+## Final Code for Finals Day
 
-## Table of Contents
-1. [Repository Structure](#repository-structure)
-2. [Hardware](#hardware)
-3. [Required Libraries](#required-libraries)
-4. [Setup Steps](#setup-steps)
-5. [Upload & Run](#upload--run)
-6. [Mode Guide](#mode-guide-button-presses)
-7. [Key Constants to Tune](#key-constants-to-tune)
-8. [Software Diagrams & Flowcharts](#software-diagrams--flowcharts)
+Use these sketches for the final robot:
 
----
+| Sketch | Purpose |
+|---|---|
+| `Finals_game_mode/game_mode/game_mode.ino` | Main finals code: chain/ramp entry, arena RFID fertility checks, seed planting, emergency return, and revival support. |
+| `Finals_game_mode/game_mode_hard/game_mode_hard.ino` | Hard-difficulty version: same behaviour as `game_mode`, plus arena-only obstacle avoidance. |
+
+The Trial 2 tuning sketches are kept as evidence and calibration history. They are not the final upload target.
 
 ## Repository Structure
 
-```
+```text
 Robotics_challenge/
-│
-├── button_mode_dr/            ← viva/trial run 2 code
-│   ├── button_mode_dr.ino     # Globals, setup(), loop(), State enum, LEDs
-│   ├── motion.ino             # Dead reckoning: gyro turns, encoder drive, bias cal
-│   ├── line_following.ino     # QTR line follow, QTR turns, arena navigation
-│   ├── wall_following.ino     # Tunnel PD wall-follow, tilt detection, chain mode
-│   ├── obstacle_avoidance.ino # 3-point box swerve around obstacles
-│   ├── comms.ino              # MiniMessenger WiFi/MQTT, heartbeat, airlock API
-│   ├── helpers.ino            # Ultrasonic, Motoron init, seed drop, buttons
-│   └── revival.ino            # Mode 4: approach & contact revival behaviour
-│
-├── electronics/               # Sensor integration test sketch (development)
-├── gyro_turning/              # Standalone gyro turn calibration sketch
-├── mechanical/                # Seed dispenser + bumper test sketch
-├── mission/                   # Early mission prototype (line + RFID + seed)
-│
-└── docs/
-    ├── software-overview.md   # Component diagram and data-flow description
-    ├── flowcharts.md          # Detailed flowcharts for all key behaviours
-    └── calibration.md         # Testing logs, what worked, what did not
+|-- Finals_game_mode/
+|   |-- game_mode/game_mode.ino
+|   `-- game_mode_hard/game_mode_hard.ino
+|-- Trial 1/
+|   |-- electronics/electronics.ino
+|   `-- mechanical/mechanical.ino
+|-- Trial 2/
+|   |-- button_mode.ino
+|   `-- Tuning code/
+|       |-- line_tracking_tune/
+|       |-- chain_mode_tune/
+|       |-- dead_reckoning_test/
+|       |-- gate_rfid_ramp_test/
+|       |-- revival_test/
+|       `-- other subsystem test sketches
+`-- docs/
+    |-- software-overview.md
+    |-- flowcharts.md
+    |-- calibration.md
+    `-- viva_answers.md
 ```
 
-> Arduino concatenates all `.ino` files in a folder before compiling, so all globals
-> declared in `button_mode_dr.ino` are visible across every tab automatically.
+## Hardware Pin Map
 
----
-
-## Hardware
-
-| Component | Details |
-|-----------|---------|
-| MCU | Arduino Giga R1 WiFi |
-| Motor drivers | 2× Pololu Motoron M3S256 (I²C on Wire1, addr 17 & 18) |
-| Drive motors | 4× DC motors with Hall-effect encoders |
-| Line sensor | Pololu QTRX-HD-09RC (9-channel RC, pins 23–31) |
-| Ultrasonic | 3× HC-SR04 — Front 37/36, Left 41/40, Right 39/38 |
-| RFID | M5Stack WS1850S (I²C on Wire2, address auto-scanned) |
-| IMU | MPU-6050 (I²C on Wire, ±500 °/s gyro, 21 Hz LPF) |
-| Buttons | Button 1 = pin 49, Button 2 = pin 47, Kill switch = pin 45 |
-| LEDs | Red = pin TBD, Green = pin TBD (fill in `button_mode_dr.ino`) |
-
-### Motoron Channel Map
-
-| Controller | I²C addr | Channel | Function |
-|------------|----------|---------|----------|
-| mc1 | 18 | ch2 | Left drive |
-| mc1 | 18 | ch3 | Right drive |
-| mc2 | 17 | ch2 | Left drive |
-| mc2 | 17 | ch3 | Right drive |
-| mc2 | 17 | ch1 | Seed dispenser |
-
-### Encoder Pins
-
-| Encoder | Pin A (interrupt) | Pin B (direction) |
-|---------|-------------------|-------------------|
-| Encoder 1 | 52 | 50 |
-| Encoder 2 | 53 | 51 |
-
----
+| Subsystem | Pins / bus | Notes |
+|---|---:|---|
+| Arduino | GIGA R1 WiFi | Main controller. |
+| Motoron drive controllers | Wire1, addresses 18 and 17 | `mc1` and `mc2`, channels 2/3 drive both sides. |
+| Seed dispenser | Motoron 17, channel 1 | Final seed speed `150`, duration `550 ms`. |
+| Raw IR line sensors | 23-31 | RC timing reads, no QTRSensors library needed. |
+| RFID reader | Wire2, reset `-1` | Address auto-scanned at startup. |
+| MPU6050 | Wire | Gyro turns and ramp tilt. |
+| Ultrasonic front | trig 37, echo 36 | Door, obstacle, revival approach. |
+| Ultrasonic left | trig 41, echo 40 | Ramp/tunnel wall following. |
+| Ultrasonic right | trig 39, echo 38 | Ramp/tunnel wall following. |
+| Bumper/contact inputs | 22 and 33 | Revival contact; green LED while pressed. |
+| Kill switch | 49 | Highest-priority immediate stop. |
+| LEDs | red 46, green 47 | Red default; green on bumper contact or calibration. |
+| Encoders | 52/50 and 53/51 | Node-distance odometry. |
 
 ## Required Libraries
 
-Install all via **Arduino IDE → Tools → Manage Libraries**, or via `.zip`:
+Install these in Arduino IDE Library Manager or equivalent:
 
-| Library | Source |
-|---------|--------|
-| `Motoron` | Library Manager → "Motoron" by Pololu |
-| `Adafruit MPU6050` | Library Manager → "Adafruit MPU6050" |
-| `Adafruit Unified Sensor` | Library Manager (dependency of above) |
-| `QTRSensors` | Library Manager → "QTRSensors" by Pololu |
-| `MFRC522_I2C` | Library Manager → "MFRC522_I2C" |
-| `MiniMessenger` | Library Manager → "MiniMessenger" |
+- `Motoron` by Pololu
+- `Adafruit MPU6050`
+- `Adafruit Unified Sensor`
+- `MFRC522_I2C`
+- `MiniMessenger`
 
----
+`QTRSensors` is not required by the final code.
 
-## Setup Steps
+## Upload and Run
 
-### 1. Hardware connections
-Wire all sensors and motors per the pin table above and connect the Arduino Giga R1 WiFi via USB.
+1. Open `Finals_game_mode/game_mode/game_mode.ino` in Arduino IDE for normal difficulty, or `Finals_game_mode/game_mode_hard/game_mode_hard.ino` for hard difficulty.
+2. Select board `Arduino GIGA R1 WiFi` and the correct serial port.
+3. Upload the sketch.
+4. Keep the robot still during gyro calibration.
+5. During raw IR calibration, move the sensor bar by hand across black line and white floor while the green LED is on.
+6. The robot auto-starts the game sequence after setup.
+7. Pin 49 is the hardware kill switch. Pressing it stops all motors and prevents automatic resume.
 
-### 2. Set LED pins
-In `button_mode_dr.ino`, fill in once the wires are known:
-```cpp
-const int redPin   = -1;   // replace with actual pin
-const int greenPin = -1;   // replace with actual pin
-```
+## Final Behaviour Summary
 
-### 4. Set Airlock A RFID tag UID
-In `wall_following.ino`, scan the tag once, read the UID from Serial, then paste it:
-```cpp
-const String AIRLOCK_A_TAG_ID = "XXXXXXXX";
-```
+1. Chain entry: raw IR base approach, RFID airlock tag detection, existing MiniMessenger airlock request format, server accept, ultrasonic door-clear confirmation.
+2. Ramp/tunnel: once the door is open, the robot drives through the door and uses ultrasonic wall following plus tilt detection for the ramp.
+3. Arena planting: 9x9 node grid, encoder/gyro node movement, RFID fertility checks, one seed per fertile unplanted tag, max five seeds.
+4. Emergency: server emergency interrupts the mission and routes to the top tunnel/exit node unless the hardware kill switch is active.
+5. Revival: server distress request interrupts planting, the robot approaches with ultrasonic, taps by bumper contact, sends `reviveRequest`, then resumes.
+6. Hard mode: obstacle avoidance runs only during arena node movement, using the same dead-reckoning node turns.
 
-### 5. QTR sensor calibration
-The robot automatically calibrates the line sensor for ~4 seconds on startup.
-During this window, **slowly move the sensor array back and forth across the line**
-so all 9 sensors see both black tape and white floor. The Serial monitor will print
-`"Calibration done!"` when finished.
+## MiniMessenger Messages Used
 
-### 6. Gyro bias calibration
-Keep the robot **completely still** for ~1.5 seconds after power-on while the gyro
-samples 500 readings. The Serial monitor prints `[GYRO] Bias: <value>` when done.
-If the robot is moving, calibration is skipped and retried at the next turn.
+| Direction | Message | Purpose |
+|---|---|---|
+| robot -> server | `type=register` | Periodic registration. |
+| robot -> server | `STATUS:GAME_MODE state=<state> enable=<n> running=<n>` | Periodic status broadcast. |
+| robot -> server | `type=openAirlock airlock=A tag_id=<uid> team_id=6 board_id=LEAK` | Existing tested airlock request format. |
+| server -> robot | `type=openAirlockReply ... accepted=true` | Door permission. |
+| robot -> server | `type=isFertile tag_id=<uid> board_id=LEAK` | Ask if a node is fertile and unplanted. |
+| server -> robot | `type=isFertileReply fertile=true planted=false ...` | Planting decision. |
+| robot -> server | `type=seedPlanted tag_id=<uid> board_id=LEAK` | Notify server after seed drop. |
+| server -> robot | `type=distress ... robot0=team.board,x,y` | Revival target. |
+| robot -> server | `type=reviveRequest target_team=<team> target_board=<board>` | Notify successful revival. |
+| server -> robot | `type=emergency` or 6-byte emergency flag | Return-to-base/top-tunnel behaviour. |
 
----
+## Testing Evidence Summary
 
-## Upload & Run
+The final game sketches are compile-verified. The full final arena game has not been claimed as fully tested end-to-end. Trial 2 subsystem tests provide evidence for the major behaviours integrated into the finals code:
 
-1. Open `button_mode_dr/button_mode_dr.ino` in **Arduino IDE 2.x** — all 8 tabs load automatically.
-2. Select **Board: Arduino Giga R1 WiFi** and the correct COM port.
-3. Click **Upload**.
-4. Open **Serial Monitor at 115200 baud** to watch startup progress and mode output.
-5. Wait for `=== Ready ===` in Serial.
-6. Press **Button 1 (pin 49)** to start the robot. The green LED comes on.
-7. Press **Button 1** again while running to advance to the next mode.
-8. Press **Kill switch (pin 49)** at any time to stop all motors immediately.
+- raw IR line following and branch sensing
+- RFID reader and airlock tag read
+- MiniMessenger airlock request/reply
+- gyro 90-degree turns
+- encoder counts per 25 cm node
+- dead-reckoning route
+- ramp/tunnel wall following
+- seed dispenser duration
+- revival approach and bumper contact
+- button/LED diagnostic
 
----
+See `docs/calibration.md` and the `Trial 2/Tuning code/*/serial_output.txt` files for logs.
 
-## Mode Guide (Button Presses)
+## Supporting Documentation
 
-| Presses | Mode | Description |
-|---------|------|-------------|
-| 0 | **Line Follow** | Proportional QTR line following; RFID updates grid position |
-| 1 | **Chain Mode** | Tunnel wall-follow → Airlock A request → Arena line follow |
-| 2 | **Line Follow 2** | Same as mode 0 (second pass / return) |
-| 3 | **Dead Reckoning** | Gyro-guided 90° turns + encoder odometry along path array |
-| 4 | **Revival** | Full-speed approach to 40 cm, then crawl to bumper contact |
-| 5 | **Obstacle Avoidance** | Forward drive with automated 3-point box swerve |
-
-> **Kill switch (pin 45)** — stops all motors instantly, regardless of mode.  
-> **Button 1 or 2** — restarts robot after kill-switch stop (revival / start).
-
----
-
-## Key Constants to Tune
-
-| Constant | File | Value | Notes |
-|----------|------|-------|-------|
-| `TURN_SCALE` | `button_mode_dr.ino` | `0.90` | Gyro brake point. ↑ if undershooting, ↓ if overshooting. Step by 0.03 |
-| `DRIVE_SPEED` | `button_mode_dr.ino` | `600` | Forward speed for dead reckoning |
-| `DRIVE_KP` | `button_mode_dr.ino` | `80.0` | Heading correction P-gain during straight drive |
-| `TRACK_WIDTH_CM` | `button_mode_dr.ino` | `17.0` | Measure axle-to-axle and update |
-| `COUNTS_PER_REV` | `button_mode_dr.ino` | `144` | Encoder ticks per wheel revolution |
-| `MIN_SPEED` | `button_mode_dr.ino` | `400` | Stall floor — never command motors below this |
-| `WK_P` | `wall_following.ino` | `80.0` | Tunnel wall-follow P gain (uphill/flat) |
-| `WK_P_DOWN` | `wall_following.ino` | `20.0` | Tunnel P gain (downhill — gentler) |
-| `W_BASE` | `wall_following.ino` | `700` | Tunnel base speed |
-| `OBS_DRIVE_SPEED` | `obstacle_avoidance.ino` | `500` | Obstacle mode forward speed |
-| `HEARTBEAT_TIMEOUT_MS` | `comms.ino` | `3000` | ms without heartbeat before motors stop |
-
----
-
-## Software Diagrams & Flowcharts
-
-- [`docs/software-overview.md`](docs/software-overview.md) — Component interaction diagram and data flow
-- [`docs/flowcharts.md`](docs/flowcharts.md) — Flowcharts for every key behaviour:
-  - Startup & sensor calibration
-  - Main loop and mode switching (kill switch, enable, robotRunning)
-  - Line following with RFID position tracking
-  - Chain mode state machine (NAVIGATING → WAITING_AIRLOCK → LINE_FOLLOWING)
-  - Dead reckoning with gyro turns and encoder odometry
-  - Obstacle avoidance 3-point swerve
-  - Revival approach and bumper contact
-  - MQTT comms, heartbeat watchdog, and airlock API
-- [`docs/calibration.md`](docs/calibration.md) — Testing logs, calibration runs, what worked and what did not
+- `docs/software-overview.md`: architecture and component interactions.
+- `docs/flowcharts.md`: behaviour flowcharts matching the final implementation.
+- `docs/calibration.md`: testing/calibration evidence and honest limitations.
+- `docs/viva_answers.md`: removable viva preparation notes.
