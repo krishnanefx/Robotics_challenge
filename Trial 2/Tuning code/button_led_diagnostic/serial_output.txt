@@ -1,8 +1,3 @@
-Example serial output — button_led_diagnostic
-Board: Arduino Giga R1 @ 115200 baud
-Captured while wiggling the mode button and both bumpers to confirm pin mapping
-before a run. All inputs use INPUT_PULLUP, so a press reads LOW.
-
 Button/LED diagnostic
 Pins use INPUT_PULLUP, so pressed should read LOW.
 Pin 49 = mode button, pin 22 = bumper 1, pin 33 = bumper 2.

@@ -1,9 +1,3 @@
-Example serial output — encoder_counts_per_node
-Board: Arduino Giga R1 @ 115200 baud
-Goal: verify the encoder count that corresponds to one 25 cm node.
-Wheel 6.5 cm dia, 144 counts/rev -> CM_PER_COUNT = pi*6.5/144 = 0.1418 cm.
-Computed target = 25 / 0.1418 = 176 counts. Measured travel confirms ~25 cm.
-
 Encoder counts per 25 cm node test
 Commands:
   f      drive one 25 cm node by encoder count

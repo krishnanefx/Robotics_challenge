@@ -1,8 +1,3 @@
-Example serial output — drop_seed_duration
-Board: Arduino Giga R1 @ 115200 baud
-Goal: find the shortest seed-motor run that drops exactly one seed.
-Result: speed 600 for 550 ms is the shortest that drops one seed every time.
-
 Drop seed duration test
 Commands:
   t      test one seed drop
