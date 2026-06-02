@@ -4,9 +4,9 @@
 // QTRSensors and uses raw RC IR reads so it can run without the laptop.
 //
 // Safety priority:
-//   1. Pin 49 kill switch: immediate motor stop, no automatic resume.
+//   1. Pin 49 or WiFi disable kill: immediate motor stop, red LED blink, no automatic resume.
 //   2. Server emergency: abandon current work and route to top tunnel node.
-//   3. Server disable/heartbeat timeout: stop and hold.
+//   3. Heartbeat timeout: stop and hold.
 //   4. Distress/revival request.
 //   5. Arena-only obstacle avoidance.
 //   6. Normal planting game.
@@ -216,6 +216,7 @@ bool modeButtonWasDown = false;
 bool pendingModeAdvance = false;
 bool calibrationLedOverride = false;
 bool killLatched = false;
+bool wifiKillLatched = false;
 bool emergencyExitRequested = false;
 bool gameStarted = false;
 bool initialPatternDone = false;
@@ -287,6 +288,7 @@ bool anyBumperPressed() {
   return digitalRead(bumper1Pin) == LOW || digitalRead(bumper2Pin) == LOW;
 }
 
+// Physical pin 49 and MiniMessenger disable both share the same latched kill path.
 bool killSwitchActive() {
   if (digitalRead(modeButtonPin) == LOW) {
     killLatched = true;
@@ -294,7 +296,7 @@ bool killSwitchActive() {
     stopMotors();
     return true;
   }
-  return killLatched;
+  return killLatched || wifiKillLatched;
 }
 
 int readDistance(uint8_t trig, uint8_t echo) {
@@ -308,10 +310,26 @@ int readDistance(uint8_t trig, uint8_t echo) {
 }
 
 void updateLEDs() {
+  if (killSwitchActive()) {
+    bool blinkOn = (millis() / 250) % 2 == 0;
+    digitalWrite(redPin, blinkOn ? HIGH : LOW);
+    digitalWrite(greenPin, LOW);
+    return;
+  }
   if (calibrationLedOverride) return;
   bool contact = anyBumperPressed();
   digitalWrite(redPin, contact ? LOW : HIGH);
   digitalWrite(greenPin, contact ? HIGH : LOW);
+}
+
+// MiniMessenger official disable / heartbeat enable=0 is treated as a WiFi kill switch.
+void latchWifiKill(const char* source) {
+  wifiKillLatched = true;
+  enable = 0;
+  running = false;
+  stopMotors();
+  Serial.print("[KILL] WiFi kill latched from ");
+  Serial.println(source);
 }
 
 void clearRevivalTarget() {
@@ -406,12 +424,18 @@ void onCommsMessage(const MessageMetadata& meta,
   if (strstr(msg, "type=heartbeat")) {
     lastHeartbeatMs = millis();
     if (strstr(msg, "enable=1")) {
-      enable = 1;
+      if (!wifiKillLatched) enable = 1;
     } else if (strstr(msg, "enable=0")) {
-      enable = 0;
-      running = false;
-      stopMotors();
+      latchWifiKill("heartbeat enable=0");
     }
+    return;
+  }
+
+  if (strstr(msg, "type=kill") ||
+      strstr(msg, "type=killswitch") ||
+      strstr(msg, "kill=true") ||
+      strstr(msg, "kill=1")) {
+    latchWifiKill("server command");
     return;
   }
 
@@ -421,10 +445,7 @@ void onCommsMessage(const MessageMetadata& meta,
   }
 
   if (strstr(msg, "type=disable")) {
-    enable = 0;
-    running = false;
-    stopMotors();
-    Serial.println("[COMMS] Disable — stopped");
+    latchWifiKill("type=disable");
     return;
   }
 
@@ -1833,6 +1854,8 @@ void printStatus() {
   Serial.print(running ? "true" : "false");
   Serial.print(" killLatched=");
   Serial.print(killLatched ? "true" : "false");
+  Serial.print(" wifiKillLatched=");
+  Serial.print(wifiKillLatched ? "true" : "false");
   Serial.print(" emergencyExit=");
   Serial.print(emergencyExitRequested ? "true" : "false");
   Serial.print(" seeds=");
@@ -1887,7 +1910,7 @@ void printHelp() {
   Serial.println("  p      toggle telemetry print");
   Serial.println("  c      print status/distances/tilt");
   Serial.println("  ?      print help");
-  Serial.println("Pin 49 is the hardware kill switch and cannot be cleared by Serial.");
+  Serial.println("Pin 49 and WiFi kill commands latch stopped and cannot be cleared by Serial.");
   printStatus();
 }
 

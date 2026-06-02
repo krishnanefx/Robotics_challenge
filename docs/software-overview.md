@@ -11,9 +11,10 @@ setup()
 
 loop()
   |-- messenger.loop()
-  |-- killSwitchActive()       highest priority, pin 49
+  |-- messenger.loop() parses WiFi disable/emergency/distress
+  |-- killSwitchActive()       highest priority, pin 49 or WiFi disable latch
   |-- commsHeartbeatCheck()
-  |-- updateLEDs()
+  |-- updateLEDs()             red blink while killed
   |-- emergency/revival checks
   `-- game state dispatcher
 ```
@@ -29,7 +30,7 @@ The final sketches are standalone `.ino` files so Arduino IDE can upload them di
 | Chain/ramp state machine | Moves from base line approach to door wait, then ramp/tunnel wall following, then arena game. |
 | Dead-reckoning movement | Uses encoders for 25 cm node distance and gyro Z for 90-degree turns. |
 | Fertility/seed subsystem | Reads RFID tags, asks server if fertile, drops one seed, sends `seedPlanted`, caches tag IDs. |
-| Safety subsystem | Pin 49 kill latch, server emergency return, heartbeat/disable stop. |
+| Safety subsystem | Pin 49 kill latch, WiFi disable kill latch, red blink kill indicator, server emergency return, heartbeat timeout stop. |
 | Revival subsystem | Parses distress target, approaches with ultrasonic, detects bumper contact, sends `reviveRequest`. |
 | Hard mode obstacle subsystem | Checks front ultrasonic during arena node moves and runs a node-based box swerve. |
 
@@ -82,17 +83,21 @@ Decision logic
 Actuators
   Motoron ch2/ch3 -> drive motors
   Motoron 17 ch1 -> seed dispenser
-  LEDs 46/47 -> calibration and bumper-contact status
+  LEDs 46/47 -> calibration, bumper-contact status, and blinking red kill indication
 ```
 
 ## Safety Priority
 
-1. Pin 49 kill switch: stop all Motoron channels immediately and latch stopped.
+1. Kill switch: pin 49 LOW or MiniMessenger WiFi disable/heartbeat `enable=0` stops all Motoron channels immediately, latches stopped, and blinks the red LED.
 2. Server emergency: stop current task and route to the top tunnel node.
-3. Server disable or heartbeat timeout: stop and hold.
+3. Heartbeat timeout: stop and hold.
 4. Revival distress: interrupt planting unless emergency/kill is active.
 5. Hard-mode obstacle avoidance.
 6. Normal planting/game logic.
+
+## WiFi Disable Kill
+
+MiniMessenger documents `type=disable enabled=false reason=stranded` as the server command for disabling a robot, and heartbeat `enable=0` as a movement stop. In the final code both are treated as a WiFi kill switch, not just a pause. The robot stops every Motoron channel, sets `wifiKillLatched = true`, ignores later heartbeat `enable=1`, and blinks the red LED until power/reset. This gives the same visible state whether the robot was killed by pin 49 or by WiFi. Server `type=emergency` remains different: it routes to the top tunnel node instead of latching dead.
 
 ## Final Code Variants
 

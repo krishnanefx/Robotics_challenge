@@ -24,9 +24,9 @@ Power on
 ```text
 loop()
   -> messenger.loop()
-  -> kill switch pin 49 LOW?
-       yes -> stopMotors(), latch stopped, return
-  -> heartbeat timeout or server disable?
+  -> kill switch pin 49 LOW OR WiFi disable latched?
+       yes -> stopMotors(), blink red LED, latch stopped, return
+  -> heartbeat timeout?
        yes -> stopMotors(), hold position, return
   -> server emergency requested?
        yes -> GAME_EMERGENCY_EXIT
@@ -96,6 +96,7 @@ GAME_SERPENTINE
 
 ```text
 server type=emergency OR binary emergency flag
+  -> different from WiFi disable kill
   -> stopMotors()
   -> emergencyExitRequested = true
   -> GAME_EMERGENCY_EXIT
@@ -109,14 +110,23 @@ GAME_EMERGENCY_EXIT
   -> GAME_TOP_TUNNEL_STOP
 ```
 
-## Kill Switch
+## Kill Switches
 
 ```text
 pin 49 LOW
   -> killLatched = true
   -> running = false
   -> stop all Motoron channels 1..3 on both controllers
+  -> blink red LED
   -> no automatic resume
+
+MiniMessenger heartbeat enable=0 OR type=disable enabled=false
+  -> wifiKillLatched = true
+  -> enable = 0
+  -> running = false
+  -> stop all Motoron channels 1..3 on both controllers
+  -> blink red LED
+  -> ignore later enable=1 until reset
 ```
 
 ## Revival
