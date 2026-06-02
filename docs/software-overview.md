@@ -103,7 +103,3 @@ MiniMessenger documents `type=disable enabled=false reason=stranded` as the serv
 
 - `game_mode`: normal finals behaviour without obstacle swerve.
 - `game_mode_hard`: identical code path with `HARD_MODE_OBSTACLES = true`, enabling obstacle checks only during arena node movement.
-
-## Why Raw IR Instead of QTRSensors
-
-The final code reads the RC reflectance sensors directly. This reduces library dependency risk and keeps the behaviour consistent with Trial 2 tuning sketches. Calibration samples min/max raw timings during a hand-moved calibration window and normalises each sensor to a 0-1000 range.
