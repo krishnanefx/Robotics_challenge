@@ -1,9 +1,3 @@
-Example serial output — airlock_rfid_reader
-Board: Arduino Giga R1 @ 115200 baud
-Goal: confirm the MFRC522 reader is alive on Wire2 and read the airlock tag UID.
-This is the first thing we run when the airlock door will not open.
-Expected airlock A tag: C2834BF4.
-
 Scanning Wire2 I2C bus...
 Found I2C device at 0x28
 Hold the airlock RFID tag near the reader.

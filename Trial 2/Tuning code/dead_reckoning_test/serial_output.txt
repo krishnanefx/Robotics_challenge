@@ -1,9 +1,3 @@
-Example serial output — dead_reckoning_test
-Board: Arduino Giga R1 @ 115200 baud
-Goal: drive the 25 cm node grid using encoders for distance and gyro yaw for the
-90 deg turns. This sketch is where the tuned DR values come from.
-COUNTS_PER_NODE = 176 (25 cm), DRIVE_SPEED = 300, turn scales L=0.96 R=0.90.
-
 [RFID] Scanning Wire2 I2C bus...
 [RFID] Found I2C device at 0x28
 [RFID] Reader initialized at 0x28

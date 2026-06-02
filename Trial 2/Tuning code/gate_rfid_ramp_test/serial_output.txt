@@ -1,9 +1,3 @@
-Example serial output — gate_rfid_ramp_test
-Board: Arduino Giga R1 @ 115200 baud
-Goal: send the airlock tag to the server, wait for accepted=true AND ultrasonic
-confirmation that the door is physically open, then wall-follow up the ramp.
-Telemetry was toggled on (p) so the door/ramp decisions are visible.
-
 [MPU] Ready.
 [COMMS] Connecting...
 

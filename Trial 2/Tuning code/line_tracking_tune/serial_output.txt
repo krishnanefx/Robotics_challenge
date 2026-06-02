@@ -1,8 +1,3 @@
-Example serial output — line_tracking_tune
-Board: Arduino Giga R1 @ 115200 baud
-Goal: tune baseSpeed and turnGain for the raw 9-sensor line follower.
-Calibration runs automatically at boot by sweeping left/right over the line.
-
 Auto calibration starting. Robot will sweep left/right.
 Auto calibration done.
 

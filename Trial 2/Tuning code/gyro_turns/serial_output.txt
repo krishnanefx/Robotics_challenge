@@ -1,10 +1,3 @@
-Example serial output — gyro_turns
-Board: Arduino Giga R1 @ 115200 baud
-Goal: tune turnScaleLeft / turnScaleRight so a 90 deg command lands on 90 deg.
-The integrated angle is where braking starts; the wheels coast a little further,
-so the brake target is set below 90 and the scale absorbs the coast.
-Overshoot -> lower the scale; undershoot -> raise it.
-
 Gyro turn test
 Commands:
   z      re-zero gyro bias; keep robot still

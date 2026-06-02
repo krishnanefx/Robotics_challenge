@@ -1,8 +1,3 @@
-Example serial output — raw_ir_reader
-Board: Arduino Giga R1 @ 115200 baud
-Captured during line/intersection check before a competition run.
-Note: higher raw_us = sensor took longer to discharge = more likely over the dark line.
-
 Raw IR reader
 Pins/indexes:
   0 -> pin 23
