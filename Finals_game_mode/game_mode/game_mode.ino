@@ -21,7 +21,7 @@
 #define RFID_WIRE Wire2
 #define RFID_RESET_PIN -1
 
-MotoronI2C mc1(18);  // ch2/ch3 drive
+MotoronI2C mc1(18);  // ch1 seed drop, ch2/ch3 drive
 MotoronI2C mc2(17);  // ch2/ch3 drive
 Adafruit_MPU6050 mpu;
 MFRC522_I2C* rfid = nullptr;
@@ -65,6 +65,7 @@ const int encoder2PinA = 53;
 const int encoder2PinB = 51;
 
 const String AIRLOCK_A_TAG_ID = "C2834BF4";
+const String AIRLOCK_B_TAG_ID = "1B0AAB41";
 
 enum RobotMode {
   MODE_GAME = 0,
@@ -72,11 +73,13 @@ enum RobotMode {
 };
 
 enum GameState {
+  GAME_WAIT_READY,
   GAME_CHAIN_ENTRY,
-  GAME_INITIAL_PATTERN,
-  GAME_SERPENTINE,
-  GAME_EMERGENCY_EXIT,
-  GAME_TOP_TUNNEL_STOP,
+  GAME_MAIN_COURSE,
+  GAME_REQUEST_EXIT_B,
+  GAME_WAIT_EXIT_B,
+  GAME_EXIT_RAMP,
+  GAME_EXIT_LINE,
   GAME_DONE
 };
 
@@ -105,17 +108,22 @@ int chainApproachTurnIndex = 0;
 
 // Motor speed limits from minimum_motor_speed.ino. Keep MAX at the safe value
 // for the 10.9 V battery; raise minimums only if motors stall from rest.
-const int MAX_MOTOR_SPEED = 660;
+const int MAX_MOTOR_SPEED = 760;
 const int MIN_FORWARD_SPEED = 200;
 const int MIN_TURN_SPEED = 400;
 
-// Raw line-sensor calibration timing. The 6 second window is for moving the
+// Raw line-sensor calibration timing. The 2 second window is for moving the
 // robot by hand over the black line and white floor while the green LED is on.
 const uint16_t RAW_SENSOR_TIMEOUT_US = 2500;
-const unsigned long IR_CALIBRATION_MS = 6000;
+const unsigned long IR_CALIBRATION_MS = 2000;
+const unsigned long GYRO_PLACEMENT_PAUSE_MS = 3000;
 const unsigned long LINE_END_FORWARD_MS = 0;
 const unsigned long AFTER_LINE_END_FORWARD_MS = 50;
-const int LEFT_TURN_SLOW_SPEED = 500;
+const unsigned long RIGHT_BRANCH_LOCKOUT_AFTER_SECOND_LEFT_MS = 2000;
+const unsigned long TURN_REACQUIRE_TIMEOUT_MS = 2500;
+const unsigned long CHAIN_LINE_END_TIMEOUT_MS = 10000;
+const unsigned long CHAIN_BRANCH_TIMEOUT_MS = 12000;
+const int LEFT_TURN_SLOW_SPEED = 600;
 
 // Dead-reckoning tuning copied from dead_reckoning_test.ino. COUNTS_PER_NODE is
 // derived from the wheel geometry but can be replaced with the measured value if
@@ -125,16 +133,34 @@ const float TRACK_WIDTH_CM = 17.0f;
 const float COUNTS_PER_REV = 144.0f;
 const float CM_PER_COUNT = (PI * WHEEL_DIAM_CM) / COUNTS_PER_REV;
 const int COUNTS_PER_NODE = (int)(25.0f / CM_PER_COUNT);
-const int DRIVE_SPEED = 300;
+const int DRIVE_SPEED = 440;
 const float DRIVE_KP = 80.0f;
-const int TURN_FAST = 660;
-const int TURN_SLOW = 566;
+// Positive trim counters a right drift by driving the left side slightly faster
+// and the right side slightly slower during dead-reckoning node moves.
+int driveTrim = 18;
+const int TURN_FAST = 760;
+const int TURN_SLOW = 620;
 const float TURN_SCALE_LEFT = 0.96f;
 const float TURN_SCALE_RIGHT = 0.90f;
 const float HEADING_ALPHA = 0.98f;
 
-// Shared 6-node assessment path: forward 2 nodes, right, forward 1 node, left,
-// forward 2 nodes. Directions use 0=W, 1=N, 2=E, 3=S.
+// Main course after the entry ramp:
+// 9 nodes, left, 2 nodes up the incline, then 4 more nodes and stop.
+// Directions use 0=W, 1=N, 2=E, 3=S.
+const int8_t COURSE_TURN_NONE = 0;
+const int8_t COURSE_TURN_LEFT = 1;
+const int8_t COURSE_TURN_RIGHT = -1;
+const uint8_t COURSE_SEGMENT_COUNT = 3;
+const uint8_t courseSegmentNodes[COURSE_SEGMENT_COUNT] = {9, 2, 4};
+const int8_t courseTurnAfterSegment[COURSE_SEGMENT_COUNT] = {
+  COURSE_TURN_LEFT,
+  COURSE_TURN_NONE,
+  COURSE_TURN_NONE
+};
+const uint8_t INCLINE_SEGMENT_INDEX = 1;
+const uint8_t LINE_TRACK_NODE_COUNT = 4;
+const int FIRST_NODE_SPEED = 330;
+const int INCLINE_COURSE_SPEED = 520;
 const int NODE_COUNT = 6;
 int pathx[NODE_COUNT] = {0, 0, 0, 1, 1, 1};
 int pathy[NODE_COUNT] = {0, 1, 2, 2, 3, 4};
@@ -145,32 +171,63 @@ const unsigned long AVOID_TIMEOUT_MS = 60000UL;
 const bool HARD_MODE_OBSTACLES = false;
 const int ARENA_SIZE = 9;
 const int MAX_SEEDS = 5;
+const uint8_t MAX_SEEDS_PER_NODE = 1;
 const int MAX_TAG_CACHE = 40;
 const int SEED_MOTOR_CHANNEL = 1;
 const int SEED_SPEED = 150;
-const unsigned long SEED_DURATION_MS = 550;
+const unsigned long SEED_DURATION_MS = 650;
 const unsigned long FERTILITY_REPLY_TIMEOUT_MS = 900;
 const uint8_t FERTILITY_RETRIES = 2;
+const unsigned long NODE_RFID_WAIT_MS = 1500;
+const unsigned long NODE_RFID_LOCKOUT_MS = 700;
+const unsigned long NODE_LINE_TIMEOUT_MS = 12000;
+const unsigned long ARENA_PRE_TURN_FORWARD_MS = 300;
+const unsigned long ARENA_LINE_SEARCH_TIMEOUT_MS = 2500;
+const unsigned long ARENA_LINE_SEARCH_SEGMENT_MS = 250;
+const int ARENA_LINE_SEARCH_SPEED = 320;
 
 // Raw line-follow tuning from line_tracking_tune.ino. If the robot weaves,
 // reduce lineTurnGain; if it does not correct enough, increase it.
-int lineBaseSpeed = 300;
-float lineTurnGain = 1.0f;
+int lineBaseSpeed = 440;
+float lineTurnGain = 1.6f;
+float lineKd = 0.7f;
+int lineCorrectionCap = 220;
 uint16_t rawLineThreshold = 200;
 int branchSearchSpeed = 200;
 bool flipLineCorrection = false;
 bool rawCalibrated = false;
+const uint8_t MIN_LINE_ACTIVE_SENSORS = 2;
+const uint8_t LINE_LOSS_CONFIRM_READS = 5;
+const uint8_t RIGHT_BRANCH_ACTIVE_SENSORS = 3;
+const uint8_t RIGHT_BRANCH_CONFIRM_READS = 8;
+const int LINE_CENTER_BASE_SPEED = 440;
+const int LINE_MODERATE_BASE_SPEED = 350;
+const int LINE_LARGE_BASE_SPEED = 260;
+const int LINE_MIN_FORWARD_SPEED = 160;
+const int LINE_HARD_TURN_MIN_SPEED = 80;
+const float LINE_MODERATE_ERROR = 45.0f;
+const float LINE_LARGE_ERROR = 90.0f;
+const unsigned long LINE_RECOVERY_MS = 350;
 
-// Ramp/wall-follow tuning from gate_rfid_ramp_test.ino. The Kp/Kd values are
-// intentionally softer than the earlier chain values to avoid wall crashes.
+// Ramp/wall-follow tuning from the latest gate/ramp tests. Before tunnel
+// detection, the robot drives straight/line-tracks into the ramp; wall PID
+// starts only after tilt or close side walls prove it is inside the tunnel.
 int tunnelBaseSpeed = 400;
-float wallKpUp = 25.0f;
+int rampEntryBoostSpeed = 600;
+float wallKpUp = -80.0f;
 float wallKpDown = 10.0f;
-float wallKd = 3.0f;
+float wallKd = 10.0f;
 int tunnelWallDist = 20;
+int wallCorrectionCap = 220;
 int doorDistanceCm = 8;
-int doorOpenCm = 18;
+int doorOpenCm = 7;
+unsigned long minRampRunMs = 5000;
+int rampExitClearHitsRequired = 6;
+unsigned long rampExitForwardMs = 500;
 int downhillReduction = 300;
+int downhillRampSpeed = 180;
+int rampDoorEntrySpeed = 220;
+unsigned long rampDoorStraightMs = 700;
 float tiltThreshold = 5.0f;
 float downhillThreshold = -20.0f;
 float compAlpha = 0.90f;
@@ -178,7 +235,7 @@ float compAlpha = 0.90f;
 bool running = false;
 volatile int enable = 1;
 RobotMode currentMode = MODE_GAME;
-GameState gameState = GAME_CHAIN_ENTRY;
+GameState gameState = GAME_WAIT_READY;
 GateState gateState = GATE_SEND_REQUEST;
 bool airlockAccepted = false;
 bool airlockDenied = false;
@@ -187,6 +244,8 @@ bool approachReadyForRamp = false;
 bool printTelemetry = false;
 bool mpuOk = false;
 bool wasInTunnel = false;
+int rampExitClearHits = 0;
+unsigned long rampStartMs = 0;
 bool exitingThroughDoor = false;
 float pitch = 0.0f;
 float wfLastError = 0.0f;
@@ -207,19 +266,30 @@ unsigned long lastStatusMs = 0;
 unsigned long airlockWaitStartMs = 0;
 unsigned long gateAirlockWaitMs = 0;
 unsigned long avoidStartMs = 0;
+unsigned long lastLineSeenMs = 0;
+unsigned long lastLineUpdateMs = 0;
 int doorOpenHits = 0;
+float lastLineError = 0.0f;
+int8_t lastLineSeenSide = 0;
 int direction = 1;
+int activeDriveSpeed = DRIVE_SPEED;
 int drIndex = 1;
 bool drDone = false;
 bool modeButtonWasDown = false;
 bool pendingModeAdvance = false;
 bool calibrationLedOverride = false;
+bool commsStarted = false;
+bool serverReadyIdle = false;
+bool runKillArmed = false;
 bool killLatched = false;
 bool wifiKillLatched = false;
+bool resumeAfterKill = false;
 bool emergencyExitRequested = false;
-bool gameStarted = false;
-bool initialPatternDone = false;
-uint8_t initialPatternStep = 0;
+bool gamePrepared = false;
+uint8_t courseSegmentIndex = 0;
+uint8_t courseNodesCompleted = 0;
+bool exitBRequestSent = false;
+String finalNodeTag = "";
 int gameX = 0;
 int gameY = 0;
 int verticalDir = 1;
@@ -237,10 +307,14 @@ String requestedFertilityTag = "";
 bool revivalTargetAvailable = false;
 char revivalTargetTeam[8] = "";
 char revivalTargetBoard[16] = "";
+bool obstacleWaitingForRfid = false;
+String lastAcceptedRfidTag = "";
 
 int approachDistanceCm = 40;
 int approachSpeed = 300;
 int crawlSpeed = 150;
+const unsigned long REVIVAL_BUMP_MS = 1500;
+const unsigned long REVIVAL_REVERSE_MS = 500;
 int currentDriveSpeed = 0;
 int revivalSpeedStep = 20;
 unsigned long revivalRampStepMs = 20;
@@ -279,23 +353,70 @@ void stopMotors() {
 
 void setCalibrationLed(bool calibrating) {
   calibrationLedOverride = calibrating;
+  digitalWrite(redPin, calibrating ? HIGH : LOW);
   digitalWrite(greenPin, calibrating ? HIGH : LOW);
-  digitalWrite(redPin, calibrating ? LOW : HIGH);
 }
 
 bool anyBumperPressed() {
   return digitalRead(bumper1Pin) == LOW || digitalRead(bumper2Pin) == LOW;
 }
 
-// Physical pin 49 and MiniMessenger disable both share the same latched kill path.
-bool killSwitchActive() {
-  if (digitalRead(modeButtonPin) == LOW) {
-    killLatched = true;
-    running = false;
-    stopMotors();
+bool modeButtonPressedEvent() {
+  bool down = digitalRead(modeButtonPin) == LOW;
+  bool pressed = down && !modeButtonWasDown;
+  modeButtonWasDown = down;
+  if (pressed) delay(40);
+  return pressed;
+}
+
+bool killSwitchLatched() {
+  return killLatched || wifiKillLatched;
+}
+
+void clearRobotKill(const char* source) {
+  bool wasDisabled = killLatched || wifiKillLatched || !enable;
+  if (!wasDisabled) return;
+
+  killLatched = false;
+  wifiKillLatched = false;
+  enable = 1;
+  running = resumeAfterKill;
+  resumeAfterKill = false;
+  runKillArmed = false;
+  stopMotors();
+  Serial.print("[ENABLE] Robot enabled from ");
+  Serial.println(source);
+  Serial.println(running ? "[ENABLE] Resuming previous run state." : "[ENABLE] Ready/idle.");
+}
+
+// Pin 49 starts the game while ready/idle. After the run starts and the button
+// has been released once, the next press latches an emergency stop. If either
+// WiFi or pin 49 has latched a stop, a fresh pin 49 press clears both latches.
+bool pollRunKillSwitch() {
+  if (wifiKillLatched || killLatched) {
+    if (modeButtonPressedEvent()) {
+      clearRobotKill("pin 49");
+      return false;
+    }
     return true;
   }
-  return killLatched || wifiKillLatched;
+  if (!running) return false;
+
+  if (!runKillArmed) {
+    if (digitalRead(modeButtonPin) == HIGH) runKillArmed = true;
+    return false;
+  }
+
+  if (digitalRead(modeButtonPin) == LOW) {
+    killLatched = true;
+    resumeAfterKill = running;
+    modeButtonWasDown = true;
+    running = false;
+    stopMotors();
+    Serial.println("[KILL] Pin 49 kill latched.");
+    return true;
+  }
+  return false;
 }
 
 int readDistance(uint8_t trig, uint8_t echo) {
@@ -309,26 +430,49 @@ int readDistance(uint8_t trig, uint8_t echo) {
 }
 
 void updateLEDs() {
-  if (killSwitchActive()) {
+  if (killSwitchLatched()) {
     bool blinkOn = (millis() / 250) % 2 == 0;
     digitalWrite(redPin, blinkOn ? HIGH : LOW);
     digitalWrite(greenPin, LOW);
     return;
   }
   if (calibrationLedOverride) return;
-  bool contact = anyBumperPressed();
-  digitalWrite(redPin, contact ? LOW : HIGH);
-  digitalWrite(greenPin, contact ? HIGH : LOW);
+  if (anyBumperPressed()) {
+    digitalWrite(redPin, LOW);
+    digitalWrite(greenPin, HIGH);
+    return;
+  }
+  if (running) {
+    digitalWrite(redPin, HIGH);
+    digitalWrite(greenPin, LOW);
+    return;
+  }
+  if (serverReadyIdle && gamePrepared && messenger.isConnected() && enable) {
+    digitalWrite(redPin, LOW);
+    digitalWrite(greenPin, HIGH);
+    return;
+  }
+  digitalWrite(redPin, LOW);
+  digitalWrite(greenPin, LOW);
 }
 
 // MiniMessenger official disable / heartbeat enable=0 is treated as a WiFi kill switch.
 void latchWifiKill(const char* source) {
   wifiKillLatched = true;
+  resumeAfterKill = running;
   enable = 0;
   running = false;
   stopMotors();
   Serial.print("[KILL] WiFi kill latched from ");
   Serial.println(source);
+}
+
+void clearWifiKill(const char* source) {
+  clearRobotKill(source);
+}
+
+void enableAndRequestStart(const char* source) {
+  clearRobotKill(source);
 }
 
 void clearRevivalTarget() {
@@ -380,12 +524,10 @@ void parseFertilityReply(const char* msg) {
 }
 
 void requestEmergencyExit() {
-  if (killSwitchActive()) return;
+  if (killSwitchLatched()) return;
   emergencyExitRequested = true;
-  gameState = GAME_EMERGENCY_EXIT;
-  running = true;
   stopMotors();
-  Serial.println("[EMERGENCY] Routing to top tunnel node.");
+  Serial.println("[EMERGENCY] Server emergency received; motors stopped.");
 }
 
 void onCommsMessage(const MessageMetadata& meta,
@@ -423,7 +565,7 @@ void onCommsMessage(const MessageMetadata& meta,
   if (strstr(msg, "type=heartbeat")) {
     lastHeartbeatMs = millis();
     if (strstr(msg, "enable=1")) {
-      if (!wifiKillLatched) enable = 1;
+      clearWifiKill("heartbeat enable=1");
     } else if (strstr(msg, "enable=0")) {
       latchWifiKill("heartbeat enable=0");
     }
@@ -445,6 +587,14 @@ void onCommsMessage(const MessageMetadata& meta,
 
   if (strstr(msg, "type=disable")) {
     latchWifiKill("type=disable");
+    return;
+  }
+
+  if (strstr(msg, "type=enable") ||
+      strstr(msg, "type=resume") ||
+      strstr(msg, "enable=true") ||
+      strstr(msg, "enable=1")) {
+    enableAndRequestStart("server command");
     return;
   }
 
@@ -480,6 +630,7 @@ void commsHeartbeatCheck() {
   if (lastHeartbeatMs == 0) return;
   if (millis() - lastHeartbeatMs > HEARTBEAT_TIMEOUT_MS) {
     if (enable) {
+      resumeAfterKill = running;
       enable = 0;
       running = false;
       stopMotors();
@@ -502,8 +653,8 @@ void sendStatusUpdate() {
     lastStatusMs = now;
     char status[96];
     snprintf(status, sizeof(status),
-             "STATUS:GAME_MODE state=%s enable=%d running=%d",
-             gameStateName(gameState), enable, running ? 1 : 0);
+             "STATUS:GAME_MODE mode=%s enable=%d running=%d",
+             modeName(currentMode), enable, running ? 1 : 0);
     messenger.sendToGroup(status);
   }
 }
@@ -622,6 +773,9 @@ void calibrateGyroBias() {
   if (!mpuOk) return;
 
   stopMotors();
+  calibrationLedOverride = true;
+  digitalWrite(redPin, LOW);
+  digitalWrite(greenPin, LOW);
   Serial.println("[GYRO] Keep robot still. Calibrating yaw bias...");
   delay(100);
 
@@ -632,6 +786,7 @@ void calibrateGyroBias() {
     delay(3);
   }
   gyroBiasZ = sum / samples;
+  calibrationLedOverride = false;
   Serial.print("[GYRO] Bias Z=");
   Serial.println(gyroBiasZ, 6);
 }
@@ -646,13 +801,65 @@ const char* stateName(ChainState state) {
   return "?";
 }
 
+struct LineSnapshot {
+  float error;
+  uint8_t activeCount;
+  bool leftEdge;
+  bool rightEdge;
+  bool onLine;
+};
+
+LineSnapshot readLineSnapshot();
+
 float readLineError() {
+  LineSnapshot line = readLineSnapshot();
+  return line.error;
+}
+
+void resetLineController() {
+  lastLineError = 0.0f;
+  lastLineUpdateMs = 0;
+  lastLineSeenMs = 0;
+  lastLineSeenSide = 0;
+}
+
+LineSnapshot readLineSnapshot() {
+  LineSnapshot line;
+  line.error = 0.0f;
+  line.activeCount = 0;
+  line.leftEdge = false;
+  line.rightEdge = false;
+  line.onLine = false;
+
   readRawLineSensors();
   float error = 0.0f;
+  float activeWeightedError = 0.0f;
+  float activeStrength = 0.0f;
+
   for (uint8_t i = 0; i < SensorCount; i++) {
-    error += normalizedRawValue(i) * weights[i];
+    uint16_t value = rawCalibrated ? normalizedRawValue(i) : sensorValues[i];
+    bool active = value > (rawCalibrated ? 100 : rawLineThreshold);
+    error += value * weights[i];
+    if (active) {
+      line.activeCount++;
+      activeWeightedError += value * weights[i];
+      activeStrength += value;
+      if (i <= 1) line.leftEdge = true;
+      if (i >= 7) line.rightEdge = true;
+    }
   }
-  return flipLineCorrection ? -error : error;
+
+  if (activeStrength > 0.0f) {
+    error = activeWeightedError / activeStrength * 1000.0f;
+  }
+
+  if (line.leftEdge && !line.rightEdge) error = max(error, LINE_LARGE_ERROR);
+  if (line.rightEdge && !line.leftEdge) error = min(error, -LINE_LARGE_ERROR);
+
+  if (flipLineCorrection) error = -error;
+  line.error = error;
+  line.onLine = line.activeCount >= MIN_LINE_ACTIVE_SENSORS;
+  return line;
 }
 
 void readRawLineSensors() {
@@ -691,10 +898,37 @@ uint16_t normalizedRawValue(uint8_t i) {
 
 void followLineStep() {
   if (checkAirlockTagDuringApproach()) return;
-  float error = readLineError();
-  int correction = (int)(error * lineTurnGain);
-  int left = lineBaseSpeed - correction;
-  int right = lineBaseSpeed + correction;
+  LineSnapshot line = readLineSnapshot();
+  unsigned long now = millis();
+  float error = line.error;
+
+  if (line.onLine) {
+    lastLineSeenMs = now;
+    if (error > 3.0f) lastLineSeenSide = 1;
+    else if (error < -3.0f) lastLineSeenSide = -1;
+  } else if (lastLineSeenSide != 0 && now - lastLineSeenMs <= LINE_RECOVERY_MS) {
+    error = lastLineSeenSide > 0 ? LINE_LARGE_ERROR : -LINE_LARGE_ERROR;
+  } else {
+    stopMotors();
+    return;
+  }
+
+  float derivative = 0.0f;
+  if (lastLineUpdateMs != 0) derivative = error - lastLineError;
+  lastLineUpdateMs = now;
+  lastLineError = error;
+
+  float absError = fabsf(error);
+  int base = LINE_CENTER_BASE_SPEED;
+  if (absError >= LINE_LARGE_ERROR) base = LINE_LARGE_BASE_SPEED;
+  else if (absError >= LINE_MODERATE_ERROR) base = LINE_MODERATE_BASE_SPEED;
+  base = min(base, lineBaseSpeed);
+
+  int correction = constrain((int)(lineTurnGain * error + lineKd * derivative),
+                             -lineCorrectionCap, lineCorrectionCap);
+  int minSpeed = absError >= LINE_LARGE_ERROR ? LINE_HARD_TURN_MIN_SPEED : LINE_MIN_FORWARD_SPEED;
+  int left = constrain(base - correction, minSpeed, MAX_MOTOR_SPEED);
+  int right = constrain(base + correction, minSpeed, MAX_MOTOR_SPEED);
   setDrive(left, right);
 
   if (printTelemetry && millis() - lastPrintMs > 250) {
@@ -703,6 +937,12 @@ void followLineStep() {
     Serial.print(stateName(chainState));
     Serial.print(" err=");
     Serial.print(error, 1);
+    Serial.print(" active=");
+    Serial.print(line.activeCount);
+    Serial.print(" d=");
+    Serial.print(derivative, 1);
+    Serial.print(" base=");
+    Serial.print(base);
     Serial.print(" corr=");
     Serial.print(correction);
     Serial.print(" L=");
@@ -712,15 +952,133 @@ void followLineStep() {
   }
 }
 
+void followArenaLineStep() {
+  LineSnapshot line = readLineSnapshot();
+  unsigned long now = millis();
+  float error = line.error;
+
+  if (line.onLine) {
+    lastLineSeenMs = now;
+    if (error > 3.0f) lastLineSeenSide = 1;
+    else if (error < -3.0f) lastLineSeenSide = -1;
+  } else if (lastLineSeenSide != 0 && now - lastLineSeenMs <= LINE_RECOVERY_MS) {
+    error = lastLineSeenSide > 0 ? LINE_LARGE_ERROR : -LINE_LARGE_ERROR;
+  } else {
+    stopMotors();
+    return;
+  }
+
+  float derivative = 0.0f;
+  if (lastLineUpdateMs != 0) derivative = error - lastLineError;
+  lastLineUpdateMs = now;
+  lastLineError = error;
+
+  float absError = fabsf(error);
+  int base = LINE_CENTER_BASE_SPEED;
+  if (absError >= LINE_LARGE_ERROR) base = LINE_LARGE_BASE_SPEED;
+  else if (absError >= LINE_MODERATE_ERROR) base = LINE_MODERATE_BASE_SPEED;
+  base = min(base, lineBaseSpeed);
+
+  int correction = constrain((int)(lineTurnGain * error + lineKd * derivative),
+                             -lineCorrectionCap, lineCorrectionCap);
+  int minSpeed = absError >= LINE_LARGE_ERROR ? LINE_HARD_TURN_MIN_SPEED : LINE_MIN_FORWARD_SPEED;
+  int left = constrain(base - correction, minSpeed, MAX_MOTOR_SPEED);
+  int right = constrain(base + correction, minSpeed, MAX_MOTOR_SPEED);
+  setDrive(left, right);
+
+  if (printTelemetry && millis() - lastPrintMs > 250) {
+    lastPrintMs = millis();
+    Serial.print("[ARENA_LINE] err=");
+    Serial.print(error, 1);
+    Serial.print(" active=");
+    Serial.print(line.activeCount);
+    Serial.print(" d=");
+    Serial.print(derivative, 1);
+    Serial.print(" base=");
+    Serial.print(base);
+    Serial.print(" corr=");
+    Serial.print(correction);
+    Serial.print(" L=");
+    Serial.print(left);
+    Serial.print(" R=");
+    Serial.println(right);
+  }
+}
+
+bool searchForArenaLine() {
+  Serial.println("[HYBRID] Searching for lost line.");
+  unsigned long start = millis();
+  unsigned long segmentStart = millis();
+  int initialSide = lastLineSeenSide;
+  int searchDir = initialSide == 0 ? 1 : initialSide;
+
+  while (millis() - start < ARENA_LINE_SEARCH_TIMEOUT_MS) {
+    updateLEDs();
+    messenger.loop();
+    if (serialStopRequested()) {
+      stopMotors();
+      return false;
+    }
+
+    LineSnapshot line = readLineSnapshot();
+    if (line.onLine) {
+      stopMotors();
+      resetLineController();
+      lastLineSeenMs = millis();
+      lastLineSeenSide = 0;
+      Serial.println("[HYBRID] Line found.");
+      return true;
+    }
+
+    if (millis() - segmentStart >= ARENA_LINE_SEARCH_SEGMENT_MS) {
+      segmentStart = millis();
+      searchDir = -searchDir;
+    }
+
+    if (searchDir > 0) spinLeft(ARENA_LINE_SEARCH_SPEED);
+    else spinRight(ARENA_LINE_SEARCH_SPEED);
+  }
+
+  stopMotors();
+  resetLineController();
+  Serial.println("[HYBRID] Line search timeout.");
+  return false;
+}
+
+void followRampEntryLineStep() {
+  LineSnapshot line = readLineSnapshot();
+  unsigned long now = millis();
+  float error = line.error;
+
+  if (line.onLine) {
+    lastLineSeenMs = now;
+    if (error > 3.0f) lastLineSeenSide = 1;
+    else if (error < -3.0f) lastLineSeenSide = -1;
+  } else if (lastLineSeenSide != 0 && now - lastLineSeenMs <= LINE_RECOVERY_MS) {
+    error = lastLineSeenSide > 0 ? LINE_LARGE_ERROR : -LINE_LARGE_ERROR;
+  }
+
+  float derivative = 0.0f;
+  if (lastLineUpdateMs != 0) derivative = error - lastLineError;
+  lastLineUpdateMs = now;
+  lastLineError = error;
+
+  int correction = constrain((int)(lineTurnGain * error + lineKd * derivative),
+                             -lineCorrectionCap, lineCorrectionCap);
+  int left = constrain(rampEntryBoostSpeed - correction, LINE_MIN_FORWARD_SPEED, MAX_MOTOR_SPEED);
+  int right = constrain(rampEntryBoostSpeed + correction, LINE_MIN_FORWARD_SPEED, MAX_MOTOR_SPEED);
+  setDrive(left, right);
+}
+
 bool serialStopRequested() {
-  if (killSwitchActive()) {
+  if (pollRunKillSwitch()) {
     running = false;
     stopMotors();
-    Serial.println("[KILL] Pin 49 active.");
     return true;
   }
 
-  if (emergencyExitRequested && gameState != GAME_EMERGENCY_EXIT) {
+  if (emergencyExitRequested) {
+    running = false;
     stopMotors();
     return true;
   }
@@ -736,15 +1094,21 @@ bool serialStopRequested() {
 }
 
 bool onLine() {
-  readRawLineSensors();
-  for (uint8_t i = 0; i < SensorCount; i++) {
-    if (rawCalibrated) {
-      if (normalizedRawValue(i) > 100) return true;
-    } else if (sensorValues[i] > rawLineThreshold) {
-      return true;
-    }
+  LineSnapshot line = readLineSnapshot();
+  unsigned long now = millis();
+  if (line.onLine) {
+    lastLineSeenMs = now;
+    if (line.error > 3.0f) lastLineSeenSide = 1;
+    else if (line.error < -3.0f) lastLineSeenSide = -1;
+    return true;
   }
-  return false;
+
+  return lastLineSeenSide != 0 && now - lastLineSeenMs <= LINE_RECOVERY_MS;
+}
+
+bool physicalLinePresent() {
+  LineSnapshot line = readLineSnapshot();
+  return line.onLine;
 }
 
 bool rightBranchDetected() {
@@ -754,15 +1118,15 @@ bool rightBranchDetected() {
     uint16_t value = rawCalibrated ? normalizedRawValue(i) : sensorValues[i];
     if (value > (rawCalibrated ? 100 : rawLineThreshold)) active++;
   }
-  return active >= 2;
+  return active >= RIGHT_BRANCH_ACTIVE_SENSORS;
 }
 
 bool confirmRightBranch() {
-  // Thick tape can momentarily look like a branch. Stop and require five
+  // Thick tape can momentarily look like a branch. Stop and require repeated
   // consecutive right-side readings before committing to the branch turn.
   stopMotors();
   delay(80);
-  for (uint8_t i = 0; i < 5; i++) {
+  for (uint8_t i = 0; i < RIGHT_BRANCH_CONFIRM_READS; i++) {
     updateLEDs();
     if (serialStopRequested()) return false;
     if (!rightBranchDetected()) {
@@ -771,6 +1135,18 @@ bool confirmRightBranch() {
     }
     delay(20);
   }
+  return true;
+}
+
+bool lineLostConfirmed() {
+  for (uint8_t i = 0; i < LINE_LOSS_CONFIRM_READS; i++) {
+    updateLEDs();
+    if (serialStopRequested()) return false;
+    if (checkAirlockTagDuringApproach()) return false;
+    if (physicalLinePresent()) return false;
+    delay(15);
+  }
+  resetLineController();
   return true;
 }
 
@@ -793,36 +1169,75 @@ void driveForwardForMs(unsigned long durationMs, int speed) {
   stopMotors();
 }
 
+void driveArenaForwardForMs(unsigned long durationMs, int speed) {
+  unsigned long start = millis();
+  while (millis() - start < durationMs) {
+    updateLEDs();
+    messenger.loop();
+    if (serialStopRequested()) return;
+    setDrive(speed, speed);
+  }
+  stopMotors();
+}
+
 void trackLineUntilEnd() {
   Serial.println("[CHAIN] Line tracking until next line end.");
-  while (onLine()) {
+  unsigned long start = millis();
+  while (true) {
     updateLEDs();
     if (serialStopRequested()) return;
     if (checkAirlockTagDuringApproach()) return;
+    if (millis() - start > CHAIN_LINE_END_TIMEOUT_MS) {
+      stopMotors();
+      resetLineController();
+      Serial.println("[CHAIN] Line end timeout.");
+      return;
+    }
+    if (!physicalLinePresent() && lineLostConfirmed()) break;
     followLineStep();
   }
   stopMotors();
+  resetLineController();
   Serial.println("[CHAIN] Next line end detected.");
 }
 
 void trackLineUntilRightBranch() {
   Serial.println("[CHAIN] Line tracking until right branch.");
+  unsigned long start = millis();
   while (true) {
     updateLEDs();
     if (serialStopRequested()) return;
     if (checkAirlockTagDuringApproach()) return;
+    if (millis() - start > CHAIN_BRANCH_TIMEOUT_MS) {
+      stopMotors();
+      resetLineController();
+      Serial.println("[CHAIN] Right branch timeout.");
+      return;
+    }
     if (rightBranchDetected()) {
       Serial.println("[CHAIN] Branch candidate — stopping to confirm.");
       if (confirmRightBranch()) break;
     }
-    float error = readLineError();
-    int correction = (int)(error * lineTurnGain);
-    int left = branchSearchSpeed - correction;
-    int right = branchSearchSpeed + correction;
-    setDrive(left, right);
+    followLineStep();
   }
   stopMotors();
+  resetLineController();
   Serial.println("[CHAIN] Right branch detected.");
+}
+
+void followLineIgnoringRightBranchForMs(unsigned long durationMs) {
+  Serial.println("[CHAIN] Branch detection lockout after second left turn.");
+  unsigned long start = millis();
+  while (millis() - start < durationMs) {
+    updateLEDs();
+    messenger.loop();
+    if (serialStopRequested()) return;
+    if (checkAirlockTagDuringApproach()) return;
+    followLineStep();
+  }
+  stopMotors();
+  resetLineController();
+  Serial.println("[CHAIN] Branch detection lockout complete.");
 }
 
 void resetRawCalibration() {
@@ -851,7 +1266,8 @@ void autoCalibrateRawLine() {
   // replaces QTR calibration and gives normalizedRawValue() a 0..1000 range.
   unsigned long start = millis();
   while (millis() - start < IR_CALIBRATION_MS) {
-    if (killSwitchActive()) {
+    messenger.loop();
+    if (killSwitchLatched()) {
       break;
     }
     sampleRawCalibration();
@@ -863,6 +1279,23 @@ void autoCalibrateRawLine() {
   setCalibrationLed(false);
   Serial.println("[RAW] Hand calibration done.");
   delay(500);
+}
+
+void waitForGyroPlacement() {
+  stopMotors();
+  calibrationLedOverride = true;
+  digitalWrite(redPin, LOW);
+  digitalWrite(greenPin, LOW);
+  Serial.println("[GYRO] LEDs off. Put robot down for gyro calibration.");
+
+  unsigned long start = millis();
+  while (millis() - start < GYRO_PLACEMENT_PAUSE_MS) {
+    messenger.loop();
+    if (killSwitchLatched()) break;
+    delay(10);
+  }
+
+  calibrationLedOverride = false;
 }
 
 void turnLeftRaw() {
@@ -942,6 +1375,7 @@ void gyroTurnInPlace(float angleRad) {
   stopMotors();
   delay(150);
   calibrateGyroBias();
+  resetLineController();
   Serial.println("[GYRO] Turn done.");
 }
 
@@ -953,20 +1387,55 @@ void gyroTurnLeft90() {
   gyroTurnInPlace(PI / 2.0f);
 }
 
+bool reacquireLineAfterTurn(bool rightTurn) {
+  if (physicalLinePresent()) {
+    resetLineController();
+    return true;
+  }
+
+  Serial.println("[CHAIN] Reacquiring line after turn.");
+  unsigned long start = millis();
+  while (millis() - start < TURN_REACQUIRE_TIMEOUT_MS) {
+    updateLEDs();
+    if (serialStopRequested()) {
+      stopMotors();
+      return false;
+    }
+    if (checkAirlockTagDuringApproach()) {
+      stopMotors();
+      return false;
+    }
+    if (physicalLinePresent()) {
+      stopMotors();
+      resetLineController();
+      Serial.println("[CHAIN] Line reacquired.");
+      return true;
+    }
+    if (rightTurn) spinRight(300);
+    else spinLeft(300);
+  }
+
+  stopMotors();
+  resetLineController();
+  Serial.println("[CHAIN] Line reacquire timeout.");
+  return false;
+}
+
 void runApproachPathStep() {
   // Chain approach sequence:
   //   follow line to end, right turn, line to end, left, line to end, left,
-  //   search slowly for a right branch, right, then follow until final line loss.
+  //   ignore branch candidates for 2 s, scan for the right branch, turn right,
+  //   and follow to the ramp/door stop.
   if (checkAirlockTagDuringApproach()) return;
 
-  if (onLine()) {
+  if (physicalLinePresent() || !lineLostConfirmed()) {
     followLineStep();
     return;
   }
 
   if (chainApproachTurnIndex > 0) {
     stopMotors();
-    Serial.println("[CHAIN] Right-forward-left maneuver complete; line lost before airlock RFID.");
+    Serial.println("[CHAIN] Approach already completed; waiting at ramp/door.");
     return;
   }
 
@@ -974,22 +1443,24 @@ void runApproachPathStep() {
   Serial.println("[CHAIN] Pausing before first right turn.");
   delay(500);
 
-  Serial.println("[CHAIN] Gyro right, two line-end left turns, then right branch turn.");
-  driveForwardForMs(30, lineBaseSpeed);  // turn 1: right — 100 ms
+  Serial.println("[CHAIN] Right, line end, left, line end, left, right branch, right, ramp line.");
+  driveForwardForMs(30, lineBaseSpeed);
   if (chainState != CH_APPROACH) return;
   gyroTurnRight90();
   if (chainState != CH_APPROACH) return;
+  if (!reacquireLineAfterTurn(true)) return;
   stopMotors();
   delay(200);
 
   trackLineUntilEnd();
   if (chainState != CH_APPROACH) return;
-  driveForwardForMs(50, lineBaseSpeed);  // turn 2: first left — 100 ms
+  driveForwardForMs(50, lineBaseSpeed);
   if (chainState != CH_APPROACH) return;
   delay(200);
 
   gyroTurnLeft90();
   if (chainState != CH_APPROACH) return;
+  if (!reacquireLineAfterTurn(false)) return;
   stopMotors();
   delay(200);
 
@@ -1001,8 +1472,12 @@ void runApproachPathStep() {
 
   gyroTurnLeft90();
   if (chainState != CH_APPROACH) return;
+  if (!reacquireLineAfterTurn(false)) return;
   stopMotors();
   delay(200);
+
+  followLineIgnoringRightBranchForMs(RIGHT_BRANCH_LOCKOUT_AFTER_SECOND_LEFT_MS);
+  if (chainState != CH_APPROACH) return;
 
   trackLineUntilRightBranch();
   if (chainState != CH_APPROACH) return;
@@ -1012,14 +1487,16 @@ void runApproachPathStep() {
   
   gyroTurnRight90();
   if (chainState != CH_APPROACH) return;
+  if (!reacquireLineAfterTurn(true)) return;
   stopMotors();
   delay(200);
 
-  Serial.println("[CHAIN] Following line after last turn; will enter ramp on line loss.");
-  while (onLine()) {
+  Serial.println("[CHAIN] Following ramp line; will stop/wait on final line loss.");
+  while (true) {
     updateLEDs();
     if (serialStopRequested()) return;
     if (checkAirlockTagDuringApproach()) return;
+    if (!physicalLinePresent() && lineLostConfirmed()) break;
     followLineStep();
   }
 
@@ -1032,6 +1509,8 @@ void runApproachPathStep() {
   if (airlockAccepted && doorIsOpenStable()) {
     chainState = CH_TUNNEL;
     doorOpenHits = 0;
+    rampExitClearHits = 0;
+    rampStartMs = millis();
     Serial.println("[CHAIN] Line lost and door clear — entering ramp mode.");
   } else {
     chainState = CH_WAIT_ENTRY;
@@ -1092,16 +1571,24 @@ bool doorIsOpenStable() {
   return doorOpenHits >= 3;
 }
 
+bool rampTunnelDetected(float tilt, int distL, int distR) {
+  bool tilted = fabsf(tilt) > tiltThreshold;
+  bool wallsClose = distL < tunnelWallDist && distR < tunnelWallDist;
+  return tilted || wallsClose;
+}
+
+bool validTunnelSideReadings(int distL, int distR) {
+  return distL >= 3 && distL <= 80 && distR >= 3 && distR <= 80;
+}
+
 bool navigateTunnelStep() {
   // Ramp mode starts by driving forward until tilt or close side walls prove the
   // robot is inside the tunnel, then switches to ultrasonic wall following.
   float tilt = getTilt();
   int distL = readDistance(TRIG_L, ECHO_L);
   int distR = readDistance(TRIG_R, ECHO_R);
-  bool tilted = fabsf(tilt) > tiltThreshold;
-  bool wallsClose = distL < tunnelWallDist && distR < tunnelWallDist;
 
-  if (!tilted && !wallsClose) {
+  if (!rampTunnelDetected(tilt, distL, distR)) {
     if (printTelemetry && millis() - lastPrintMs > 250) {
       lastPrintMs = millis();
       Serial.print("[TUNNEL] Not in tunnel. tilt=");
@@ -1116,6 +1603,18 @@ bool navigateTunnelStep() {
 
   bool goingDown = tilt < downhillThreshold;
   bool doorOpened = waitForDoorIfClosed();
+  if (doorOpened) {
+    wfLastError = 0.0f;
+    unsigned long start = millis();
+    while (millis() - start < rampDoorStraightMs) {
+      messenger.loop();
+      updateLEDs();
+      if (serialStopRequested()) break;
+      setDrive(rampDoorEntrySpeed, rampDoorEntrySpeed);
+      delay(5);
+    }
+  }
+
   if (goingDown && doorOpened) {
     exitingThroughDoor = true;
     Serial.println("[TUNNEL] Downhill door opened; using exit speed.");
@@ -1123,7 +1622,22 @@ bool navigateTunnelStep() {
 
   int base = tunnelBaseSpeed;
   if (goingDown && !exitingThroughDoor) {
-    base = max(MIN_FORWARD_SPEED, tunnelBaseSpeed - downhillReduction);
+    base = downhillRampSpeed;
+  }
+
+  distL = readDistance(TRIG_L, ECHO_L);
+  distR = readDistance(TRIG_R, ECHO_R);
+  if (!validTunnelSideReadings(distL, distR)) {
+    wfLastError = 0.0f;
+    setDrive(base, base);
+    if (printTelemetry && millis() - lastPrintMs > 250) {
+      lastPrintMs = millis();
+      Serial.print("[TUNNEL] Bad side reading; straight. L=");
+      Serial.print(distL);
+      Serial.print(" R=");
+      Serial.println(distR);
+    }
+    return true;
   }
 
   int error = distL - distR;
@@ -1131,7 +1645,8 @@ bool navigateTunnelStep() {
   wfLastError = error;
 
   float kp = (goingDown && !exitingThroughDoor) ? wallKpDown : wallKpUp;
-  int correction = constrain((int)(kp * error + wallKd * derivative), -220, 220);
+  int correction = constrain((int)(kp * error + wallKd * derivative),
+                             -wallCorrectionCap, wallCorrectionCap);
   int left = constrain(base + correction, 0, MAX_MOTOR_SPEED);
   int right = constrain(base - correction, 0, MAX_MOTOR_SPEED);
   setDrive(left, right);
@@ -1159,6 +1674,33 @@ bool navigateTunnelStep() {
   return true;
 }
 
+bool tunnelTraversalComplete() {
+  if (!wasInTunnel) return false;
+  int clearSpeed = downhillRampSpeed;
+  unsigned long elapsed = millis() - rampStartMs;
+  if (elapsed < minRampRunMs) {
+    setDrive(clearSpeed, clearSpeed);
+    return false;
+  }
+
+  rampExitClearHits++;
+  if (rampExitClearHits < rampExitClearHitsRequired) {
+    setDrive(clearSpeed, clearSpeed);
+    return false;
+  }
+
+  setDrive(clearSpeed, clearSpeed);
+  unsigned long start = millis();
+  while (millis() - start < rampExitForwardMs) {
+    messenger.loop();
+    updateLEDs();
+    if (serialStopRequested()) break;
+    setDrive(clearSpeed, clearSpeed);
+  }
+  stopMotors();
+  return true;
+}
+
 void resetChain() {
   stopMotors();
   chainState = CH_APPROACH;
@@ -1171,9 +1713,12 @@ void resetChain() {
   airlockRequestSent = false;
   approachReadyForRamp = false;
   doorOpenHits = 0;
+  rampExitClearHits = 0;
+  rampStartMs = 0;
   wfLastError = 0.0f;
   pitch = 0.0f;
   lastTiltUs = 0;
+  resetLineController();
   Serial.println("[RESET] CH_APPROACH, stopped.");
 }
 
@@ -1194,6 +1739,8 @@ void runChainStep() {
         exitingThroughDoor = false;
         wfLastError = 0.0f;
         doorOpenHits = 0;
+        rampExitClearHits = 0;
+        rampStartMs = millis();
         Serial.println("[DOOR] Accepted and ultrasonic clear — entering ramp mode.");
         return;
       }
@@ -1207,27 +1754,28 @@ void runChainStep() {
     case CH_TUNNEL:
       if (navigateTunnelStep()) {
         wasInTunnel = true;
+        rampExitClearHits = 0;
         return;
       }
-      if (wasInTunnel) {
+      if (tunnelTraversalComplete()) {
         stopMotors();
         wasInTunnel = false;
         exitingThroughDoor = false;
         chainState = CH_ARENA;
-        gameState = GAME_INITIAL_PATTERN;
+        gameState = GAME_MAIN_COURSE;
         gameX = 0;
         gameY = 0;
         direction = 1;
-        initialPatternStep = 0;
-        initialPatternDone = false;
+        courseSegmentIndex = 0;
+        courseNodesCompleted = 0;
         Serial.println("[CHAIN] Tunnel cleared. Entering arena game path.");
         return;
       }
-      setDrive(tunnelBaseSpeed, tunnelBaseSpeed);
+      followRampEntryLineStep();
       return;
 
     case CH_ARENA:
-      gameState = GAME_INITIAL_PATTERN;
+      gameState = GAME_MAIN_COURSE;
       return;
   }
 }
@@ -1269,6 +1817,12 @@ void updateHeading() {
   prevEncR = curR;
   float encAngle = (distR - distL) / TRACK_WIDTH_CM;
   fusedHeading += HEADING_ALPHA * gyroAngle + (1.0f - HEADING_ALPHA) * encAngle;
+}
+
+void setDeadReckoningDrive(int correction) {
+  int leftSpeed = constrain(activeDriveSpeed + correction + driveTrim, MIN_FORWARD_SPEED, MAX_MOTOR_SPEED);
+  int rightSpeed = constrain(activeDriveSpeed - correction - driveTrim, MIN_FORWARD_SPEED, MAX_MOTOR_SPEED);
+  setDrive(leftSpeed, rightSpeed);
 }
 
 void drTurnInPlace(float angleRad) {
@@ -1360,9 +1914,7 @@ bool driveToNode() {
     }
 
     int correction = constrain((int)(DRIVE_KP * fusedHeading), -189, 189);
-    int leftSpeed = constrain(DRIVE_SPEED + correction, MIN_FORWARD_SPEED, MAX_MOTOR_SPEED);
-    int rightSpeed = constrain(DRIVE_SPEED - correction, MIN_FORWARD_SPEED, MAX_MOTOR_SPEED);
-    setDrive(leftSpeed, rightSpeed);
+    setDeadReckoningDrive(correction);
   }
 
   stopMotors();
@@ -1547,14 +2099,117 @@ bool driveToNodeCountsOnly() {
     if (avg >= COUNTS_PER_NODE) break;
 
     int correction = constrain((int)(DRIVE_KP * fusedHeading), -189, 189);
-    int leftSpeed = constrain(DRIVE_SPEED + correction, MIN_FORWARD_SPEED, MAX_MOTOR_SPEED);
-    int rightSpeed = constrain(DRIVE_SPEED - correction, MIN_FORWARD_SPEED, MAX_MOTOR_SPEED);
-    setDrive(leftSpeed, rightSpeed);
+    setDeadReckoningDrive(correction);
   }
 
   stopMotors();
   calibrateGyroBias();
   return true;
+}
+
+bool waitForRfidTag(String& tagId, unsigned long timeoutMs) {
+  unsigned long start = millis();
+  while (millis() - start < timeoutMs) {
+    messenger.loop();
+    updateLEDs();
+    if (serialStopRequested()) return false;
+    if (readRfidTag(tagId)) return true;
+    delay(10);
+  }
+  return false;
+}
+
+bool driveToNodeAndReadTag(String& tagId, bool needTag) {
+  tagId = "";
+  zeroDriveState();
+  const long minRfidCounts = COUNTS_PER_NODE / 3;
+
+  while (true) {
+    updateLEDs();
+    messenger.loop();
+    if (serialStopRequested()) {
+      stopMotors();
+      return false;
+    }
+    updateHeading();
+
+    noInterrupts();
+    long leftCount = encoderCount1;
+    long rightCount = encoderCount2;
+    interrupts();
+
+    long avg = (abs(leftCount) + abs(rightCount)) / 2;
+    if (avg >= COUNTS_PER_NODE) break;
+
+    if (needTag && avg >= minRfidCounts && readRfidTag(tagId)) {
+      Serial.print("[DR] RFID node stop tag=");
+      Serial.println(tagId);
+      break;
+    }
+
+    int correction = constrain((int)(DRIVE_KP * fusedHeading), -189, 189);
+    setDeadReckoningDrive(correction);
+  }
+
+  stopMotors();
+  calibrateGyroBias();
+
+  if (needTag && tagId.length() == 0) {
+    Serial.println("[RFID] Waiting at node for tag.");
+    if (!waitForRfidTag(tagId, NODE_RFID_WAIT_MS)) {
+      Serial.println("[RFID] No node tag found after stop.");
+      return true;
+    }
+    Serial.print("[RFID] Node tag=");
+    Serial.println(tagId);
+  }
+  return true;
+}
+
+bool lineTrackToNodeAndReadTag(String& tagId) {
+  tagId = "";
+  resetLineController();
+  unsigned long start = millis();
+
+  if (!physicalLinePresent() && lineLostConfirmed()) {
+    Serial.println("[HYBRID] No line at node start; using gyro/RFID node drive.");
+    return driveToNodeAndReadTag(tagId, true);
+  }
+
+  while (true) {
+    updateLEDs();
+    messenger.loop();
+    if (serialStopRequested()) {
+      stopMotors();
+      return false;
+    }
+
+    unsigned long elapsed = millis() - start;
+    if (elapsed >= NODE_RFID_LOCKOUT_MS && readRfidTag(tagId)) {
+      stopMotors();
+      resetLineController();
+      calibrateGyroBias();
+      Serial.print("[HYBRID] RFID node tag=");
+      Serial.println(tagId);
+      return true;
+    }
+
+    if (elapsed > NODE_LINE_TIMEOUT_MS) {
+      stopMotors();
+      resetLineController();
+      Serial.println("[HYBRID] Timed out before finding next RFID node.");
+      return false;
+    }
+
+    if (!physicalLinePresent() && lineLostConfirmed()) {
+      if (!searchForArenaLine()) {
+        Serial.println("[HYBRID] Could not reacquire line; falling back to gyro/RFID node drive.");
+        return driveToNodeAndReadTag(tagId, true);
+      }
+    }
+
+    followArenaLineStep();
+  }
 }
 
 bool stringInCache(String cache[], uint8_t count, const String& value) {
@@ -1572,20 +2227,47 @@ void addToCache(String cache[], uint8_t& count, const String& value) {
 
 void dropSeed() {
   Serial.println("[SEED] Dropping one seed.");
-  mc2.setSpeed(SEED_MOTOR_CHANNEL, SEED_SPEED);
-  delay(SEED_DURATION_MS);
-  mc2.setSpeed(SEED_MOTOR_CHANNEL, 0);
+  mc1.setSpeed(SEED_MOTOR_CHANNEL, SEED_SPEED);
+  unsigned long start = millis();
+  while (millis() - start < SEED_DURATION_MS) {
+    messenger.loop();
+    updateLEDs();
+    if (serialStopRequested()) break;
+    delay(5);
+  }
+  mc1.setSpeed(SEED_MOTOR_CHANNEL, 0);
   Serial.println("[SEED] Done.");
 }
 
-void sendSeedPlanted(const String& tagId) {
+bool sendSeedPlanted(const String& tagId) {
   char msg[96];
   snprintf(msg, sizeof(msg),
            "type=seedPlanted tag_id=%s board_id=%s",
            tagId.c_str(), board);
-  messenger.sendToBoard("server", msg);
+  bool sent = false;
+  for (uint8_t attempt = 0; attempt < 3 && !sent; attempt++) {
+    messenger.loop();
+    sent = messenger.sendToBoard("server", msg);
+    if (!sent) delay(50);
+  }
   Serial.print("[SEED] seedPlanted sent for ");
-  Serial.println(tagId);
+  Serial.print(tagId);
+  Serial.println(sent ? " — sent" : " — SEND FAILED");
+  return sent;
+}
+
+void plantSeedsAtNode(const String& tagId) {
+  uint8_t drops = 0;
+  while (drops < MAX_SEEDS_PER_NODE) {
+    dropSeed();
+    sendSeedPlanted(tagId);
+    seedsPlanted++;
+    drops++;
+    Serial.print("[GAME] Seeds planted=");
+    Serial.println(seedsPlanted);
+  }
+
+  addToCache(plantedTags, plantedTagCount, tagId);
 }
 
 void sendReviveRequest(const char* targetTeam, const char* targetBoard) {
@@ -1638,25 +2320,30 @@ bool queryFertility(const String& tagId) {
 }
 
 void checkCurrentNodeForSeed() {
-  if (seedsPlanted >= MAX_SEEDS) return;
-
   String tagId;
   if (!readRfidTag(tagId)) return;
 
   Serial.print("[RFID] Arena node tag=");
   Serial.println(tagId);
-  if (stringInCache(plantedTags, plantedTagCount, tagId)) return;
-  if (stringInCache(seenTags, seenTagCount, tagId)) return;
-
-  addToCache(seenTags, seenTagCount, tagId);
   if (!queryFertility(tagId)) return;
+  plantSeedsAtNode(tagId);
+}
 
-  dropSeed();
-  sendSeedPlanted(tagId);
-  addToCache(plantedTags, plantedTagCount, tagId);
-  seedsPlanted++;
-  Serial.print("[GAME] Seeds planted=");
-  Serial.println(seedsPlanted);
+void checkNodeTagForSeed(const String& tagId) {
+  if (tagId.length() == 0) return;
+
+  Serial.print("[RFID] Course node tag=");
+  Serial.println(tagId);
+  if (!queryFertility(tagId)) return;
+  plantSeedsAtNode(tagId);
+}
+
+uint8_t courseNodeIndex() {
+  uint8_t index = courseNodesCompleted;
+  for (uint8_t i = 0; i < courseSegmentIndex; i++) {
+    index += courseSegmentNodes[i];
+  }
+  return index;
 }
 
 bool moveGameNode(int targetDir, bool allowObstacle) {
@@ -1683,65 +2370,152 @@ bool moveGameNode(int targetDir, bool allowObstacle) {
   return true;
 }
 
-bool runInitialPatternStep() {
-  switch (initialPatternStep) {
-    case 0:
-      if (!moveGameNode(1, true)) return false;
-      break;
-    case 1:
-      if (!moveGameNode(2, true)) return false;
-      break;
-    case 2:
-      if (!moveGameNode(1, true)) return false;
-      break;
-    case 3:
-      if (!moveGameNode(1, true)) return false;
-      break;
-    case 4:
-      drTurnLeft();
-      verticalDir = 1;
-      initialPatternDone = true;
-      gameState = GAME_SERPENTINE;
-      Serial.println("[GAME] Initial pattern complete.");
-      return true;
-    default:
-      initialPatternDone = true;
-      gameState = GAME_SERPENTINE;
-      return true;
+bool moveCourseNode(int targetDir) {
+  drFaceDir(targetDir);
+  if (serialStopRequested()) return false;
+
+  bool finalCourseNode = courseSegmentIndex == COURSE_SEGMENT_COUNT - 1 &&
+                         courseNodesCompleted + 1 == courseSegmentNodes[courseSegmentIndex];
+  bool inclineSegment = courseSegmentIndex == INCLINE_SEGMENT_INDEX;
+  uint8_t nodeIndex = courseNodeIndex();
+  bool useLineTracking = nodeIndex < LINE_TRACK_NODE_COUNT;
+  int courseSpeed = DRIVE_SPEED;
+  if (nodeIndex == 0) courseSpeed = FIRST_NODE_SPEED;
+  else if (inclineSegment) courseSpeed = INCLINE_COURSE_SPEED;
+
+  int savedLineBaseSpeed = lineBaseSpeed;
+  int savedActiveDriveSpeed = activeDriveSpeed;
+  lineBaseSpeed = courseSpeed;
+  activeDriveSpeed = courseSpeed;
+
+  if (nodeIndex == 0) {
+    Serial.println("[GAME] First node slow speed active.");
+  } else if (inclineSegment) {
+    Serial.println("[GAME] Incline segment speed boost active.");
   }
-  initialPatternStep++;
+  Serial.println(useLineTracking ? "[GAME] Node move using line tracking." :
+                                   "[GAME] Node move using gyro/RFID only.");
+
+  String tagId;
+  bool moved = useLineTracking ? lineTrackToNodeAndReadTag(tagId)
+                               : driveToNodeAndReadTag(tagId, true);
+  lineBaseSpeed = savedLineBaseSpeed;
+  activeDriveSpeed = savedActiveDriveSpeed;
+  if (!moved) {
+    return false;
+  }
+
+  if (targetDir == 0) gameX--;
+  else if (targetDir == 1) gameY++;
+  else if (targetDir == 2) gameX++;
+  else if (targetDir == 3) gameY--;
+
+  Serial.print("[GAME] Course node x=");
+  Serial.print(gameX);
+  Serial.print(" y=");
+  Serial.print(gameY);
+  Serial.print(" tag=");
+  Serial.println(tagId.length() ? tagId : "NONE");
+
+  if (finalCourseNode) {
+    Serial.println("[GAME] Final course node reached; robot will stop after this leg.");
+  }
+
+  checkNodeTagForSeed(tagId);
+
   return true;
 }
 
-bool runSerpentineStep() {
-  if (seedsPlanted >= MAX_SEEDS) {
-    gameState = GAME_EMERGENCY_EXIT;
+bool runMainCourseStep() {
+  if (courseSegmentIndex >= COURSE_SEGMENT_COUNT) {
+    stopMotors();
+    running = false;
+    gameState = GAME_DONE;
+    Serial.println("[GAME] Course complete. Motors stopped.");
     return true;
   }
 
-  if (verticalDir > 0 && gameY < ARENA_SIZE - 1) return moveGameNode(1, true);
-  if (verticalDir < 0 && gameY > 0) return moveGameNode(3, true);
-
-  if (gameX < ARENA_SIZE - 1) {
-    if (!moveGameNode(2, true)) return false;
-    verticalDir = -verticalDir;
+  if (courseNodesCompleted < courseSegmentNodes[courseSegmentIndex]) {
+    if (!moveCourseNode(direction)) return false;
+    if (gameState == GAME_REQUEST_EXIT_B) return true;
+    courseNodesCompleted++;
     return true;
   }
 
-  Serial.println("[GAME] Sweep complete before 5 seeds; going to top tunnel.");
-  gameState = GAME_EMERGENCY_EXIT;
-  return true;
-}
+  int8_t turn = courseTurnAfterSegment[courseSegmentIndex];
+  if (turn != COURSE_TURN_NONE) {
+    driveArenaForwardForMs(ARENA_PRE_TURN_FORWARD_MS, lineBaseSpeed);
+    if (serialStopRequested()) return false;
+    if (turn == COURSE_TURN_LEFT) drTurnLeft();
+    else if (turn == COURSE_TURN_RIGHT) drTurnRight();
+    if (serialStopRequested()) return false;
+  }
 
-bool routeToTopTunnelNode() {
-  while (gameY < ARENA_SIZE - 1) {
-    if (!moveGameNode(1, false)) return false;
+  if (courseSegmentIndex < COURSE_SEGMENT_COUNT - 1) {
+    courseSegmentIndex++;
+    courseNodesCompleted = 0;
+    return true;
   }
-  while (gameX > 0) {
-    if (!moveGameNode(0, false)) return false;
-  }
-  drFaceDir(0);
+
   stopMotors();
+  running = false;
+  gameState = GAME_DONE;
+  Serial.println("[GAME] Course complete. Motors stopped.");
+  return true;
+}
+
+bool requestExitBAirlock() {
+  if (finalNodeTag.length() == 0) {
+    Serial.println("[DOOR] No final RFID tag available for airlock B request.");
+    return false;
+  }
+  exitBRequestSent = requestAirlock("B", finalNodeTag.c_str());
+  airlockWaitStartMs = millis();
+  return exitBRequestSent;
+}
+
+void beginExitRamp() {
+  wasInTunnel = false;
+  exitingThroughDoor = false;
+  rampExitClearHits = 0;
+  rampStartMs = millis();
+  wfLastError = 0.0f;
+  pitch = 0.0f;
+  lastTiltUs = 0;
+  doorOpenHits = 0;
+  gameState = GAME_EXIT_RAMP;
+  Serial.println("[DOOR] Airlock B clear. Descending ramp.");
+}
+
+bool runExitRampStep() {
+  if (navigateTunnelStep()) {
+    wasInTunnel = true;
+    rampExitClearHits = 0;
+    return true;
+  }
+
+  if (tunnelTraversalComplete()) {
+    wasInTunnel = false;
+    exitingThroughDoor = false;
+    gameState = GAME_EXIT_LINE;
+    Serial.println("[EXIT] Ramp cleared. Line tracking down exit line.");
+    return true;
+  }
+
+  followRampEntryLineStep();
+  return true;
+}
+
+bool runExitLineStep() {
+  if (physicalLinePresent() || !lineLostConfirmed()) {
+    followLineStep();
+    return true;
+  }
+
+  stopMotors();
+  running = false;
+  gameState = GAME_DONE;
+  Serial.println("[EXIT] Line ended. Motors stopped.");
   return true;
 }
 
@@ -1765,7 +2539,7 @@ void rampRevivalDriveToward(int targetSpeed) {
 void smoothRevivalStop() {
   while (currentDriveSpeed != 0) {
     updateLEDs();
-    if (killSwitchActive()) {
+    if (pollRunKillSwitch()) {
       break;
     }
     rampRevivalDriveToward(0);
@@ -1792,11 +2566,13 @@ void runRevivalStep() {
   int front = readDistance(TRIG_F, ECHO_F);
   if (anyBumperPressed()) {
     smoothRevivalStop();
-    sendReviveRequest(revivalTargetTeam, revivalTargetBoard);
+    const char* targetTeam = revivalTargetAvailable ? revivalTargetTeam : "unknown";
+    const char* targetBoard = revivalTargetAvailable ? revivalTargetBoard : "unknown";
+    sendReviveRequest(targetTeam, targetBoard);
     clearRevivalTarget();
     revivalDone = true;
     running = true;
-    Serial.println("[REVIVAL] Bumper contact. Motors stopped.");
+    Serial.println("[REVIVAL] Bumper contact. Revive request sent; motors stopped.");
     return;
   }
 
@@ -1814,70 +2590,72 @@ const char* modeName(RobotMode mode) {
 void startMode(RobotMode mode) {
   stopMotors();
   currentMode = MODE_GAME;
-  gameState = GAME_CHAIN_ENTRY;
+  gameState = GAME_MAIN_COURSE;
   emergencyExitRequested = false;
   pendingModeAdvance = false;
   calibrationLedOverride = false;
+  serverReadyIdle = false;
+  runKillArmed = false;
+  chainState = CH_ARENA;
+  courseSegmentIndex = 0;
+  courseNodesCompleted = 0;
+  activeDriveSpeed = DRIVE_SPEED;
+  exitBRequestSent = false;
+  finalNodeTag = "";
+  seedsPlanted = 0;
+  seenTagCount = 0;
+  plantedTagCount = 0;
+  gameX = 0;
+  gameY = 0;
+  direction = 1;
+  wasInTunnel = false;
+  exitingThroughDoor = false;
+  airlockAccepted = false;
+  airlockDenied = false;
+  airlockRequestSent = false;
+  approachReadyForRamp = false;
+  doorOpenHits = 0;
+  rampExitClearHits = 0;
+  rampStartMs = 0;
+  wfLastError = 0.0f;
+  resetLineController();
   updateLEDs();
-  resetChain();
-  autoCalibrateRawLine();
   calibrateGyroBias();
-  running = !killSwitchActive();
-  gameStarted = running;
-  Serial.println("[GAME] Started.");
+  running = !killSwitchLatched();
+  Serial.println("[GAME] Started arena 9-left-2-incline-4-stop path. Chain/ramp entry skipped.");
 }
 
 void advanceMode() {
   startMode(MODE_GAME);
 }
 
-const char* gameStateName(GameState state) {
-  switch (state) {
-    case GAME_CHAIN_ENTRY: return "CHAIN_ENTRY";
-    case GAME_INITIAL_PATTERN: return "INITIAL_PATTERN";
-    case GAME_SERPENTINE: return "SERPENTINE";
-    case GAME_EMERGENCY_EXIT: return "EMERGENCY_EXIT";
-    case GAME_TOP_TUNNEL_STOP: return "TOP_TUNNEL_STOP";
-    case GAME_DONE: return "DONE";
-  }
-  return "?";
-}
-
 void printStatus() {
   Serial.println();
-  Serial.print("gameState=");
-  Serial.print(gameStateName(gameState));
-  Serial.print(" chainState=");
+  Serial.print("state=");
   Serial.print(stateName(chainState));
+  Serial.print(" approachTurn=");
+  Serial.print(chainApproachTurnIndex);
+  Serial.print("/4");
   Serial.print(" running=");
   Serial.print(running ? "true" : "false");
-  Serial.print(" killLatched=");
-  Serial.print(killLatched ? "true" : "false");
-  Serial.print(" wifiKillLatched=");
-  Serial.print(wifiKillLatched ? "true" : "false");
-  Serial.print(" emergencyExit=");
-  Serial.print(emergencyExitRequested ? "true" : "false");
-  Serial.print(" seeds=");
-  Serial.print(seedsPlanted);
-  Serial.print("/");
-  Serial.print(MAX_SEEDS);
-  Serial.print(" node=(");
-  Serial.print(gameX);
-  Serial.print(",");
-  Serial.print(gameY);
-  Serial.print(") facing=");
-  Serial.println(dirNames[direction]);
-
-  Serial.print("rawLine calibrated=");
-  Serial.print(rawCalibrated ? "true" : "false");
-  Serial.print(" threshold=");
-  Serial.print(rawLineThreshold);
+  Serial.print(" driveTrim=");
+  Serial.print(driveTrim);
   Serial.print(" lineBase=");
   Serial.print(lineBaseSpeed);
   Serial.print(" lineGain=");
-  Serial.println(lineTurnGain, 2);
+  Serial.print(lineTurnGain, 2);
+  Serial.print(" branchSpeed=");
+  Serial.print(branchSearchSpeed);
+  Serial.print(" rawThreshold=");
+  Serial.print(rawLineThreshold);
+  Serial.print(" calibrated=");
+  Serial.print(rawCalibrated ? "true" : "false");
+  Serial.print(" gyroRightScale=");
+  Serial.print(gyroTurnScaleRight, 2);
+  Serial.print(" flipLine=");
+  Serial.println(flipLineCorrection ? "true" : "false");
 
-  Serial.print("ramp base=");
+  Serial.print("tunnelBase=");
   Serial.print(tunnelBaseSpeed);
   Serial.print(" KpUp=");
   Serial.print(wallKpUp, 1);
@@ -1885,8 +2663,20 @@ void printStatus() {
   Serial.print(wallKpDown, 1);
   Serial.print(" Kd=");
   Serial.print(wallKd, 1);
+  Serial.print(" wallDist=");
+  Serial.print(tunnelWallDist);
+  Serial.print(" doorCm=");
+  Serial.print(doorDistanceCm);
   Serial.print(" doorOpenCm=");
-  Serial.println(doorOpenCm);
+  Serial.print(doorOpenCm);
+  Serial.print(" downhillReduction=");
+  Serial.print(downhillReduction);
+  Serial.print(" downhillRampSpeed=");
+  Serial.print(downhillRampSpeed);
+  Serial.print(" rampDoorEntrySpeed=");
+  Serial.print(rampDoorEntrySpeed);
+  Serial.print(" rampDoorStraightMs=");
+  Serial.println(rampDoorStraightMs);
 
   Serial.print("front=");
   Serial.print(readDistance(TRIG_F, ECHO_F));
@@ -1900,16 +2690,33 @@ void printStatus() {
 
 void printHelp() {
   Serial.println();
-  Serial.println(HARD_MODE_OBSTACLES ? "Game mode hard" : "Game mode");
+  Serial.println("Button mode rewrite");
   Serial.println("Commands:");
-  Serial.println("  g      start/resume game if not killed");
-  Serial.println("  s      stop motors and pause game");
-  Serial.println("  e      simulate server emergency route");
-  Serial.println("  k      rerun raw IR + gyro calibration while stopped");
+  Serial.println("  pin49  advance/start next mode");
+  Serial.println("  g      run current mode");
+  Serial.println("  s      stop motors");
+  Serial.println("  x      reset to APPROACH");
+  Serial.println("  a      manual override: airlock accepted -> TUNNEL");
+  Serial.println("  1      force APPROACH");
+  Serial.println("  2      force WAIT_ENTRY");
+  Serial.println("  3      force TUNNEL");
+  Serial.println("  4      force ARENA");
+  Serial.println("  + / -  tunnel base speed up/down");
+  Serial.println("  v / z  drive trim up/down (positive counters right drift)");
+  Serial.println("  > / <  line base speed up/down");
+  Serial.println("  ] / [  wall Kp up/down");
+  Serial.println("  } / {  wall Kd up/down");
+  Serial.println("  u / j  tunnel wall distance up/down");
+  Serial.println("  d / e  door distance up/down");
+  Serial.println("  f      flip line correction direction");
   Serial.println("  p      toggle telemetry print");
+  Serial.println("  k      auto-calibrate raw line sensors by sweeping left/right");
+  Serial.println("  b      re-zero gyro yaw bias");
+  Serial.println("  m / n  gyro right turn scale up/down");
+  Serial.println("  y / h  raw line threshold up/down, used before calibration");
   Serial.println("  c      print status/distances/tilt");
   Serial.println("  ?      print help");
-  Serial.println("Pin 49 and WiFi kill commands latch stopped and cannot be cleared by Serial.");
+  Serial.println("RFID C2834BF4 sends type=openAirlock to server automatically.");
   printStatus();
 }
 
@@ -1918,27 +2725,115 @@ void handleSerial() {
     char c = Serial.read();
 
     if (c == 'g' || c == 'G') {
-      if (!killLatched) {
-        running = true;
-        Serial.println("[RUN] Game running.");
+      if (gamePrepared && messenger.isConnected() && enable && !killSwitchLatched()) {
+        startMode(MODE_GAME);
       } else {
-        Serial.println("[RUN] Ignored: pin 49 kill switch is latched.");
+        Serial.println("[RUN] Ignored until prepared, connected, and enabled.");
       }
     } else if (c == 's' || c == 'S') {
       running = false;
       stopMotors();
       Serial.println("[STOP] Motors stopped.");
-    } else if (c == 'e' || c == 'E') {
-      requestEmergencyExit();
-    } else if (c == 'k' || c == 'K') {
-      running = false;
+    } else if (c == 'x' || c == 'X') {
+      resetChain();
+    } else if (c == 'a' || c == 'A') {
+      chainState = CH_TUNNEL;
+      running = true;
+  wasInTunnel = false;
+  exitingThroughDoor = false;
+  airlockAccepted = false;
+  airlockDenied = false;
+  airlockRequestSent = false;
+  approachReadyForRamp = false;
+  doorOpenHits = 0;
+  wfLastError = 0.0f;
+      Serial.println("[CHAIN] Manual airlock accept -> TUNNEL.");
+    } else if (c == '1') {
+      chainState = CH_APPROACH;
+      chainApproachTurnIndex = 0;
+      Serial.println("[STATE] APPROACH");
+    } else if (c == '2') {
+      chainState = CH_WAIT_ENTRY;
       stopMotors();
-      autoCalibrateRawLine();
-      calibrateGyroBias();
+      Serial.println("[STATE] WAIT_ENTRY");
+    } else if (c == '3') {
+      chainState = CH_TUNNEL;
+      Serial.println("[STATE] TUNNEL");
+    } else if (c == '4') {
+      chainState = CH_ARENA;
+      Serial.println("[STATE] ARENA");
+    } else if (c == '+') {
+      tunnelBaseSpeed = constrain(tunnelBaseSpeed + 25, MIN_FORWARD_SPEED, MAX_MOTOR_SPEED);
+      printStatus();
+    } else if (c == '-') {
+      tunnelBaseSpeed = constrain(tunnelBaseSpeed - 25, MIN_FORWARD_SPEED, MAX_MOTOR_SPEED);
+      printStatus();
+    } else if (c == 'v' || c == 'V') {
+      driveTrim = constrain(driveTrim + 3, -80, 80);
+      printStatus();
+    } else if (c == 'z' || c == 'Z') {
+      driveTrim = constrain(driveTrim - 3, -80, 80);
+      printStatus();
+    } else if (c == '>') {
+      lineBaseSpeed = constrain(lineBaseSpeed + 25, MIN_FORWARD_SPEED, MAX_MOTOR_SPEED);
+      printStatus();
+    } else if (c == '<') {
+      lineBaseSpeed = constrain(lineBaseSpeed - 25, MIN_FORWARD_SPEED, MAX_MOTOR_SPEED);
+      printStatus();
+    } else if (c == ']') {
+      wallKpUp += 5.0f;
+      wallKpDown += 2.0f;
+      printStatus();
+    } else if (c == '[') {
+      wallKpUp = max(5.0f, wallKpUp - 5.0f);
+      wallKpDown = max(2.0f, wallKpDown - 2.0f);
+      printStatus();
+    } else if (c == '}') {
+      wallKd += 1.0f;
+      printStatus();
+    } else if (c == '{') {
+      wallKd = max(0.0f, wallKd - 1.0f);
+      printStatus();
+    } else if (c == 'u' || c == 'U') {
+      tunnelWallDist = constrain(tunnelWallDist + 1, 5, 80);
+      printStatus();
+    } else if (c == 'j' || c == 'J') {
+      tunnelWallDist = constrain(tunnelWallDist - 1, 5, 80);
+      printStatus();
+    } else if (c == 'd' || c == 'D') {
+      doorDistanceCm = constrain(doorDistanceCm + 1, 3, 40);
+      printStatus();
+    } else if (c == 'e' || c == 'E') {
+      doorDistanceCm = constrain(doorDistanceCm - 1, 3, 40);
+      printStatus();
+    } else if (c == 'f' || c == 'F') {
+      flipLineCorrection = !flipLineCorrection;
+      printStatus();
     } else if (c == 'p' || c == 'P') {
       printTelemetry = !printTelemetry;
       Serial.print("printTelemetry=");
       Serial.println(printTelemetry ? "true" : "false");
+    } else if (c == 'k' || c == 'K') {
+      running = false;
+      stopMotors();
+      autoCalibrateRawLine();
+      waitForGyroPlacement();
+      calibrateGyroBias();
+    } else if (c == 'b' || c == 'B') {
+      running = false;
+      calibrateGyroBias();
+    } else if (c == 'm' || c == 'M') {
+      gyroTurnScaleRight = constrain(gyroTurnScaleRight + 0.03f, 0.75f, 1.25f);
+      printStatus();
+    } else if (c == 'n' || c == 'N') {
+      gyroTurnScaleRight = constrain(gyroTurnScaleRight - 0.03f, 0.75f, 1.25f);
+      printStatus();
+    } else if (c == 'y' || c == 'Y') {
+      rawLineThreshold = constrain(rawLineThreshold + 50, 50, RAW_SENSOR_TIMEOUT_US);
+      printStatus();
+    } else if (c == 'h' || c == 'H') {
+      rawLineThreshold = constrain(rawLineThreshold - 50, 50, RAW_SENSOR_TIMEOUT_US);
+      printStatus();
     } else if (c == 'c' || c == 'C') {
       printStatus();
     } else if (c == '?') {
@@ -1952,6 +2847,7 @@ void setup() {
 
   messenger.onMessage(onCommsMessage);
   messenger.begin(ssid, pass, broker, port, group, board);
+  commsStarted = true;
   Serial.println("[COMMS] MiniMessenger starting");
 
   pinMode(TRIG_F, OUTPUT);
@@ -2006,8 +2902,14 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(encoder2PinA), countEncoder2, RISING);
 
   stopMotors();
-  Serial.println("[GAME] Auto-starting. Pin 49 is kill switch.");
-  startMode(MODE_GAME);
+  autoCalibrateRawLine();
+  waitForGyroPlacement();
+  calibrateGyroBias();
+  gamePrepared = true;
+  serverReadyIdle = true;
+  gameState = GAME_WAIT_READY;
+  modeButtonWasDown = digitalRead(modeButtonPin) == LOW;
+  Serial.println("[GAME] Prepared. Waiting for server connection and pin 49 start.");
 }
 
 void loop() {
@@ -2017,7 +2919,7 @@ void loop() {
 
   updateLEDs();
 
-  if (killSwitchActive()) {
+  if (pollRunKillSwitch()) {
     stopMotors();
     return;
   }
@@ -2030,39 +2932,70 @@ void loop() {
   }
 
   if (!running) {
+    if (gamePrepared && messenger.isConnected() && enable && modeButtonPressedEvent()) {
+      startMode(MODE_GAME);
+      return;
+    }
     stopMotors();
     return;
   }
 
-  if (revivalTargetAvailable && !emergencyExitRequested && gameState != GAME_CHAIN_ENTRY) {
+  if (!revivalTargetAvailable && !anyBumperPressed()) {
+    revivalDone = false;
+  }
+
+  if ((revivalTargetAvailable || anyBumperPressed()) &&
+      !emergencyExitRequested && gameState != GAME_CHAIN_ENTRY) {
     runRevivalStep();
     return;
   }
 
   switch (gameState) {
+    case GAME_WAIT_READY:
+      stopMotors();
+      running = false;
+      break;
+
     case GAME_CHAIN_ENTRY:
       runChainStep();
       break;
 
-    case GAME_INITIAL_PATTERN:
-      runInitialPatternStep();
+    case GAME_MAIN_COURSE:
+      runMainCourseStep();
       break;
 
-    case GAME_SERPENTINE:
-      runSerpentineStep();
-      break;
-
-    case GAME_EMERGENCY_EXIT:
-      if (routeToTopTunnelNode()) {
-        gameState = GAME_TOP_TUNNEL_STOP;
+    case GAME_REQUEST_EXIT_B:
+      stopMotors();
+      if (requestExitBAirlock()) {
+        gameState = GAME_WAIT_EXIT_B;
+        Serial.println("[DOOR] Waiting for airlock B reply and ultrasonic clearance.");
+      } else {
+        running = false;
+        gameState = GAME_DONE;
       }
       break;
 
-    case GAME_TOP_TUNNEL_STOP:
+    case GAME_WAIT_EXIT_B:
+      stopMotors();
+      if (airlockAccepted && doorIsOpenStable()) {
+        beginExitRamp();
+      } else if (airlockDenied && millis() - airlockWaitStartMs > AIRLOCK_RETRY_MS) {
+        Serial.println("[DOOR] Retrying airlock B request.");
+        requestExitBAirlock();
+      }
+      break;
+
+    case GAME_EXIT_RAMP:
+      runExitRampStep();
+      break;
+
+    case GAME_EXIT_LINE:
+      runExitLineStep();
+      break;
+
     case GAME_DONE:
       stopMotors();
       running = false;
-      Serial.println("[GAME] Stopped at top tunnel node.");
       break;
 
     default:
