@@ -102,7 +102,21 @@ Install these in Arduino IDE Library Manager or equivalent:
 
 ## Testing Evidence Summary
 
-The final game sketches are compile-verified. The full final arena game has not been fully tested end-to-end. Trial 2 subsystem tests provide evidence for the major behaviours integrated into the finals code:
+The final game sketches are compile-verified. 
+
+For the final full arena run, several limitations were found during real robot testing.
+
+The main issue was that the robot did not reliably stay aligned when moving node-to-node using only dead reckoning. It drifted between nodes, especially over longer straight sections, so the code was changed to use a hybrid approach: the robot line-tracks for the first four nodes where the line is available, then switches to gyro/dead-reckoning with RFID node detection for the remaining route. A full line-search recovery was also added, but because the arena does not always provide a usable line, the robot now falls back to RFID/encoder/gyro movement instead of stopping when the line cannot be reacquired.
+
+To reduce the rightward drift during dead-reckoning movement, a drive trim value was added. The final code uses driveTrim = 18, which slightly increases the left-side motor speed and slightly reduces the right-side motor speed during straight node driving. This compensates for the robot’s tendency to drift right, which may be caused by small differences in motor output, wheel grip, chassis alignment, or weight distribution.
+
+The arena route was changed to the current final strategy: 9 nodes forward, turn left, 2 nodes over the incline, then 4 nodes forward and stop. The first node is driven slower at 330 motor speed to reduce early misalignment. This was added because the robot was most sensitive to drift immediately after starting, before it had stabilised on the route. After the first node, the normal base speed is 440, and the incline section uses a boosted speed of 520, so the robot can climb more reliably.
+
+Seeding was also changed to reduce uncertainty. Instead of blindly planting at every node, the robot now reads the RFID tag at the node and sends a fertility request to the server before dropping a seed. It only plants if the reply confirms that the node is fertile and not already planted. This prevents wasting seeds on invalid or already-used nodes, while still using the RFID tag to link each seed action to a specific arena location.
+
+Ramp and tunnel behaviour was adjusted because the robot was not equally stable on flat ground and slopes. The downhill ramp speed was reduced separately from the normal tunnel speed, because moving too quickly downhill made the robot harder to control. Once the robot detects that it is inside the tunnel, it uses the left and right ultrasonic sensors for wall following. This lets it correct its position relative to the tunnel walls instead of relying only on dead reckoning while travelling through the ramp section.
+
+Trial 2 subsystem tests provide evidence for the major behaviours integrated into the finals code:
 
 - raw IR line following and branch sensing
 - RFID reader and airlock tag read
