@@ -1,6 +1,6 @@
-# Robotics Challenge - Group 6 Programming Submission
+# Robotics Challenge: an autonomous seed-planting robot
 
-This repository is the programming submission for the COMP0204 2026 Robotics Challenge.
+An Arduino GIGA robot that crosses an arena on its own: it follows a line where there is one, switches to gyro and encoder dead reckoning where there isn't, checks RFID tags for fertile ground and plants seeds, while talking to the game server over MQTT. Built by Group 6 for UCL's COMP0204 Robotics Challenge 2026, where we placed **4th of 14 teams**. This repository is our code.
 
 ## Final Code for Finals Day
 
