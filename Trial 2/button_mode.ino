@@ -37,8 +37,9 @@ void onCommsMessage(const MessageMetadata& meta,
                     const uint8_t* payload,
                     size_t length);
 
-const char* ssid = "REMOVED_WIFI_SSID";
-const char* pass = "REMOVED_WIFI_PASSWORD";
+#include "arduino_secrets.h"  // copy arduino_secrets.h.example, fill in, never commit
+const char* ssid = SECRET_SSID;
+const char* pass = SECRET_PASS;
 const char* broker = "192.168.0.74";
 const uint16_t port = 1883;
 const char* group = "6";

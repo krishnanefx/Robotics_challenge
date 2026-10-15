@@ -76,7 +76,7 @@ Install these in Arduino IDE Library Manager or equivalent:
 
 The Trial 1 sketches additionally use `QTRSensors` (Pololu) and `TFLI2C` (TF-Luna LiDAR).
 
-WiFi SSID/password, broker address, group (`6`) and board ID (`LEAK`) are hard-coded near the top of each sketch; change them for a different network.
+WiFi credentials live in `arduino_secrets.h` next to each sketch (gitignored): copy `arduino_secrets.h.example`, rename it, and fill in `SECRET_SSID` / `SECRET_PASS`. The broker address, group (`6`) and board ID (`LEAK`) are hard-coded near the top of each sketch.
 
 ## Upload and Run
 
